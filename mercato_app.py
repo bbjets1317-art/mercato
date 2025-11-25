@@ -10,13 +10,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 import base64
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from io import BytesIO
 
 # Company name to ticker mapping
 COMPANY_TICKER_MAP = {
@@ -1176,124 +1169,152 @@ def show_calculating():
     st.rerun()
 
 
-def generate_portfolio_pdf(stock_scores, shares_dict):
-    """Generate PDF report of portfolio"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    story = []
-    styles = getSampleStyleSheet()
-    
-    # Custom styles
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        textColor=colors.HexColor('#343967'),
-        spaceAfter=30,
-        alignment=TA_CENTER
-    )
-    
-    heading_style = ParagraphStyle(
-        'CustomHeading',
-        parent=styles['Heading2'],
-        fontSize=16,
-        textColor=colors.HexColor('#343967'),
-        spaceAfter=12,
-        spaceBefore=20
-    )
-    
-    # Title
-    title = Paragraph("Mercato Portfolio Report", title_style)
-    story.append(title)
-    
-    # Date
-    date_text = Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", styles['Normal'])
-    story.append(date_text)
-    story.append(Spacer(1, 0.3*inch))
-    
-    # Portfolio Summary
+def generate_portfolio_html_report(stock_scores, shares_dict):
+    """Generate HTML report of portfolio for download"""
     portfolio_score = calculate_portfolio_score(stock_scores)
-    summary_heading = Paragraph("Portfolio Overview", heading_style)
-    story.append(summary_heading)
-    
-    summary_data = [
-        ['Portfolio Health Score', f'{portfolio_score}/100'],
-        ['Total Stocks', str(len(stock_scores))],
-        ['Report Date', datetime.now().strftime('%B %d, %Y')]
-    ]
-    
-    summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f5f5f5')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#343967')),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-        ('TOPPADDING', (0, 0), (-1, -1), 12),
-        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#343967'))
-    ]))
-    story.append(summary_table)
-    story.append(Spacer(1, 0.5*inch))
-    
-    # Stock Breakdown
-    breakdown_heading = Paragraph("Stock Breakdown", heading_style)
-    story.append(breakdown_heading)
+    current_date = datetime.now().strftime('%B %d, %Y at %I:%M %p')
     
     # Sort stocks by score
     sorted_stocks = sorted(stock_scores, key=lambda x: x['final_score'], reverse=True)
     
+    # Generate stock rows
+    stock_rows = ""
     for stock in sorted_stocks:
-        # Stock header
         shares = shares_dict.get(stock['ticker'])
         shares_text = f" ({shares} shares)" if shares and shares > 0 else ""
-        
-        stock_title = Paragraph(
-            f"<b>{stock['ticker']}</b> - {stock['company_name']}{shares_text}",
-            heading_style
-        )
-        story.append(stock_title)
-        
-        # Stock details
         price_change_sign = '+' if stock['price_change'] >= 0 else ''
+        price_change_color = '#10b981' if stock['price_change'] >= 0 else '#ef4444'
         
-        details_data = [
-            ['Current Price', f"${stock['price']:.2f}"],
-            ['Daily Change', f"{price_change_sign}{stock['price_change']:.2f}%"],
-            ['Overall Score', f"{stock['final_score']}/100"],
-            ['', '']  # Blank row
-        ]
-        
-        # Score breakdown
-        scores_data = [
-            ['Financial Health', f"{stock['financial_health']}/20"],
-            ['Profitability', f"{stock['profitability']}/20"],
-            ['Growth', f"{stock['growth']}/20"],
-            ['Momentum', f"{stock['momentum']}/20"],
-            ['Stability', f"{stock['stability']}/20"]
-        ]
-        
-        combined_data = details_data + scores_data
-        
-        stock_table = Table(combined_data, colWidths=[2.5*inch, 2*inch])
-        stock_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 3), colors.HexColor('#e6e0d5')),
-            ('BACKGROUND', (0, 4), (-1, -1), colors.HexColor('#f5f5f5')),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#343967')),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#343967'))
-        ]))
-        story.append(stock_table)
-        story.append(Spacer(1, 0.3*inch))
+        stock_rows += f"""
+        <div style="background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #343967;">
+            <h3 style="color: #343967; margin: 0 0 15px 0;">{stock['ticker']} - {stock['company_name']}{shares_text}</h3>
+            
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                <tr style="background: #e6e0d5;">
+                    <td style="padding: 10px; border: 1px solid #343967; font-weight: bold;">Current Price</td>
+                    <td style="padding: 10px; border: 1px solid #343967;">${stock['price']:.2f}</td>
+                </tr>
+                <tr style="background: #e6e0d5;">
+                    <td style="padding: 10px; border: 1px solid #343967; font-weight: bold;">Daily Change</td>
+                    <td style="padding: 10px; border: 1px solid #343967; color: {price_change_color};">{price_change_sign}{stock['price_change']:.2f}%</td>
+                </tr>
+                <tr style="background: #e6e0d5;">
+                    <td style="padding: 10px; border: 1px solid #343967; font-weight: bold;">Overall Score</td>
+                    <td style="padding: 10px; border: 1px solid #343967; font-weight: bold; font-size: 18px;">{stock['final_score']}/100</td>
+                </tr>
+            </table>
+            
+            <h4 style="color: #343967; margin: 20px 0 10px 0;">Score Breakdown</h4>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Financial Health</td>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['financial_health']}/20</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Profitability</td>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['profitability']}/20</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Growth</td>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['growth']}/20</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Momentum</td>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['momentum']}/20</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Stability</td>
+                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['stability']}/20</td>
+                </tr>
+            </table>
+        </div>
+        """
     
-    # Build PDF
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Mercato Portfolio Report</title>
+        <style>
+            body {{
+                font-family: Georgia, serif;
+                max-width: 800px;
+                margin: 40px auto;
+                padding: 20px;
+                background: #ffffff;
+                color: #343967;
+            }}
+            h1 {{
+                text-align: center;
+                color: #343967;
+                font-size: 36px;
+                margin-bottom: 10px;
+            }}
+            .subtitle {{
+                text-align: center;
+                color: #666;
+                margin-bottom: 40px;
+            }}
+            .summary {{
+                background: #343967;
+                color: #e6e0d5;
+                padding: 30px;
+                border-radius: 12px;
+                margin-bottom: 40px;
+            }}
+            .summary h2 {{
+                margin-top: 0;
+                color: #e6e0d5;
+            }}
+            .summary-item {{
+                display: flex;
+                justify-content: space-between;
+                padding: 10px 0;
+                border-bottom: 1px solid rgba(230, 224, 213, 0.3);
+            }}
+            .summary-item:last-child {{
+                border-bottom: none;
+            }}
+            @media print {{
+                body {{
+                    margin: 0;
+                    padding: 20px;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Mercato Portfolio Report</h1>
+        <p class="subtitle">Generated: {current_date}</p>
+        
+        <div class="summary">
+            <h2>Portfolio Overview</h2>
+            <div class="summary-item">
+                <span>Portfolio Health Score</span>
+                <span style="font-size: 24px; font-weight: bold;">{portfolio_score}/100</span>
+            </div>
+            <div class="summary-item">
+                <span>Total Stocks</span>
+                <span>{len(stock_scores)}</span>
+            </div>
+            <div class="summary-item">
+                <span>Report Date</span>
+                <span>{datetime.now().strftime('%B %d, %Y')}</span>
+            </div>
+        </div>
+        
+        <h2 style="color: #343967; margin-top: 40px;">Stock Breakdown</h2>
+        {stock_rows}
+        
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 2px solid #343967; color: #666;">
+            <p>Report generated by Mercato - The market made simple</p>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html_content
 
 
 def show_dashboard():
@@ -1330,12 +1351,12 @@ def show_dashboard():
             st.session_state.screen = 'calculating'
             st.rerun()
     with col4:
-        pdf_buffer = generate_portfolio_pdf(st.session_state.stock_scores, st.session_state.shares)
+        html_report = generate_portfolio_html_report(st.session_state.stock_scores, st.session_state.shares)
         st.download_button(
-            label="Export PDF",
-            data=pdf_buffer,
-            file_name=f"mercato_portfolio_{datetime.now().strftime('%Y%m%d')}.pdf",
-            mime="application/pdf",
+            label="Export Report",
+            data=html_report,
+            file_name=f"mercato_portfolio_{datetime.now().strftime('%Y%m%d')}.html",
+            mime="text/html",
             use_container_width=True
         )
     
