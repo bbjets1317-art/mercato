@@ -174,7 +174,7 @@ st.markdown("""
         margin: 12px 0;
         box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
         border: 1px solid rgba(230, 224, 213, 0.15);
-        border-left: 3px solid #c9a961;
+        border-left: 3px solid #e6e0d5;
     }
     
     .insight-text {
@@ -198,7 +198,7 @@ st.markdown("""
     }
     
     .stock-card:hover {
-        border-color: #c9a961;
+        border-color: #e6e0d5;
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
         transform: translateY(-3px);
     }
@@ -236,7 +236,7 @@ st.markdown("""
     .stock-ticker {
         font-size: 13px;
         font-weight: 600;
-        color: #c9a961;
+        color: #e6e0d5;
         letter-spacing: 1.2px;
         text-transform: uppercase;
     }
@@ -313,7 +313,7 @@ st.markdown("""
     
     .stButton > button:hover {
         background: linear-gradient(135deg, #2a2f52 0%, #343967 100%);
-        border-color: #c9a961;
+        border-color: #e6e0d5;
         box-shadow: 0 6px 20px rgba(201, 169, 97, 0.3);
         transform: translateY(-2px);
     }
@@ -409,7 +409,7 @@ st.markdown("""
     }
     
     .stTextInput > div > div > input:focus {
-        border-color: #c9a961;
+        border-color: #e6e0d5;
         box-shadow: 0 4px 12px rgba(201, 169, 97, 0.2);
         color: #343967 !important;
     }
@@ -420,7 +420,7 @@ st.markdown("""
     
     /* Progress bar */
     .stProgress > div > div > div {
-        background: linear-gradient(90deg, #343967 0%, #c9a961 100%);
+        background: linear-gradient(90deg, #343967 0%, #e6e0d5 100%);
     }
     </style>
 """, unsafe_allow_html=True)
@@ -815,7 +815,7 @@ def show_how_to_use():
     
     st.markdown("""
         <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #c9a961; margin-bottom: 20px;">Getting Started</h3>
+            <h3 style="color: #e6e0d5; margin-bottom: 20px;">Getting Started</h3>
             <p style="font-size: 16px; line-height: 1.8;">
                 1. <b>Add Stocks:</b> Click "My Portfolio" from the main menu, then add stock tickers (like AAPL, TSLA, etc.)<br><br>
                 2. <b>Enter Shares (Optional):</b> If you want to track your money, enter how many shares you own<br><br>
@@ -825,7 +825,7 @@ def show_how_to_use():
         </div>
         
         <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #c9a961; margin-bottom: 20px;">Understanding Scores</h3>
+            <h3 style="color: #e6e0d5; margin-bottom: 20px;">Understanding Scores</h3>
             <p style="font-size: 16px; line-height: 1.8;">
                 Each stock gets scored in <b>5 categories</b> (0-20 points each):<br><br>
                 
@@ -840,7 +840,7 @@ def show_how_to_use():
         </div>
         
         <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #c9a961; margin-bottom: 20px;">Features</h3>
+            <h3 style="color: #e6e0d5; margin-bottom: 20px;">Features</h3>
             <p style="font-size: 16px; line-height: 1.8;">
                 • <b>Leaderboard:</b> See top 5 and bottom 5 stocks by score<br>
                 • <b>Daily Insights:</b> Get AI-generated analysis of your portfolio<br>
@@ -861,7 +861,7 @@ def show_about():
     
     st.markdown("""
         <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h2 style="color: #c9a961; margin-bottom: 20px; text-align: center;">The Story</h2>
+            <h2 style="color: #e6e0d5; margin-bottom: 20px; text-align: center;">The Story</h2>
             <p style="font-size: 17px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
                 I'm Benny Besztery, an Entrepreneurship major at the University of Tampa. I built Mercato 
                 because I wanted a simple way to understand the stock market without all the noise and confusion.
@@ -877,7 +877,7 @@ def show_about():
         </div>
         
         <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #c9a961; margin-bottom: 20px; text-align: center;">What Mercato Does</h3>
+            <h3 style="color: #e6e0d5; margin-bottom: 20px; text-align: center;">What Mercato Does</h3>
             <p style="font-size: 16px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
                 We analyze stocks across five key dimensions—Financial Health, Profitability, Growth, 
                 Momentum, and Stability—giving you a clear, easy-to-understand score out of 100. 
@@ -886,7 +886,7 @@ def show_about():
         </div>
         
         <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #c9a961; margin-bottom: 20px; text-align: center;">Why Mercato?</h3>
+            <h3 style="color: #e6e0d5; margin-bottom: 20px; text-align: center;">Why Mercato?</h3>
             <p style="font-size: 16px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
                 • <b>Simple Scores:</b> Understand any stock in seconds<br>
                 • <b>Real Data:</b> Powered by live market information<br>
@@ -909,7 +909,8 @@ def show_about():
 
 def show_leaderboard():
     """Leaderboard showing top and bottom stocks"""
-    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 30px; color: #343967;">Stock Leaderboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 20px; color: #343967;">Your Portfolio Leaderboard</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align: center; color: #343967; font-size: 18px; margin-bottom: 30px;">Top and bottom performers from your stocks</div>', unsafe_allow_html=True)
     
     if not st.session_state.stock_scores:
         st.markdown("""
@@ -937,30 +938,7 @@ def show_leaderboard():
                 <div style="background: #343967; padding: 20px; border-radius: 12px; margin: 10px 0; border-left: 4px solid #10b981;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <span style="color: #c9a961; font-size: 24px; font-weight: 700;">#{i}</span>
-                            <span style="color: #e6e0d5; font-size: 20px; font-weight: 600; margin-left: 15px;">{stock['ticker']}</span>
-                            <span style="color: #d0c9bc; font-size: 16px; margin-left: 10px;">{stock['company_name']}{shares_text}</span>
-                        </div>
-                        <div style="color: #e6e0d5; font-size: 32px; font-weight: 200;">{stock['final_score']}</div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Bottom 5
-        st.markdown('<div class="section-header" style="color: #ef4444;">⚠️ Bottom 5 Stocks</div>', unsafe_allow_html=True)
-        
-        bottom_5 = sorted_stocks[-5:][::-1]
-        for i, stock in enumerate(bottom_5, 1):
-            shares = st.session_state.shares.get(stock['ticker'])
-            shares_text = f" • {shares} shares" if shares and shares > 0 else ""
-            
-            st.markdown(f"""
-                <div style="background: #343967; padding: 20px; border-radius: 12px; margin: 10px 0; border-left: 4px solid #ef4444;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <span style="color: #ef4444; font-size: 20px; font-weight: 700;">#{len(sorted_stocks) - i + 1}</span>
+                            <span style="color: #e6e0d5; font-size: 24px; font-weight: 700;">#{i}</span>
                             <span style="color: #e6e0d5; font-size: 20px; font-weight: 600; margin-left: 15px;">{stock['ticker']}</span>
                             <span style="color: #d0c9bc; font-size: 16px; margin-left: 10px;">{stock['company_name']}{shares_text}</span>
                         </div>
@@ -1029,35 +1007,57 @@ def show_add_stocks():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown('<div class="section-header">Add New Stock</div>', unsafe_allow_html=True)
-            ticker_input = st.text_input("Stock ticker (e.g., AAPL, TSLA)", key="ticker_input").upper()
+            ticker_input = st.text_input("Stock ticker or company name (e.g., AAPL or Apple)", key="ticker_input")
             shares_input = st.number_input("Number of shares (optional)", min_value=0.0, value=0.0, step=0.1, format="%.3f", key="shares_input", help="Leave as 0 if you don't want to track shares")
             
             if st.button("Add to Portfolio", use_container_width=True):
                 if ticker_input:
-                    if ticker_input in st.session_state.portfolio:
-                        st.warning(f"{ticker_input} already in portfolio")
+                    # Try to convert company name to ticker if needed
+                    search_term = ticker_input.upper().strip()
+                    
+                    if search_term in st.session_state.portfolio:
+                        st.warning(f"{search_term} already in portfolio")
                     else:
                         # Validate ticker first
-                        with st.spinner('Validating...'):
+                        with st.spinner('Searching...'):
                             try:
-                                test_stock = yf.Ticker(ticker_input)
+                                # First try as-is (in case it's already a ticker)
+                                test_stock = yf.Ticker(search_term)
                                 test_hist = test_stock.history(period="5d")
                                 
-                                # Check if we got valid price data
-                                if test_hist.empty or len(test_hist) == 0:
-                                    st.error(f"Stock not available")
+                                # If it works, use it
+                                if not test_hist.empty and len(test_hist) > 0:
+                                    final_ticker = search_term
                                 else:
+                                    # Try searching for company name
+                                    try:
+                                        search_results = yf.Ticker(search_term)
+                                        info = search_results.info
+                                        final_ticker = info.get('symbol', search_term)
+                                        
+                                        # Validate the found ticker
+                                        test_stock = yf.Ticker(final_ticker)
+                                        test_hist = test_stock.history(period="5d")
+                                        
+                                        if test_hist.empty or len(test_hist) == 0:
+                                            st.error(f"Could not find stock. Try using ticker symbol (e.g., AAPL)")
+                                            final_ticker = None
+                                    except:
+                                        st.error(f"Could not find stock. Try using ticker symbol (e.g., AAPL)")
+                                        final_ticker = None
+                                
+                                if final_ticker:
                                     # Stock is valid - add to portfolio with shares
-                                    st.session_state.portfolio.append(ticker_input)
+                                    st.session_state.portfolio.append(final_ticker)
                                     if shares_input > 0:
-                                        st.session_state.shares[ticker_input] = shares_input
+                                        st.session_state.shares[final_ticker] = shares_input
                                     else:
-                                        st.session_state.shares[ticker_input] = None
-                                    st.success(f"{ticker_input} added successfully")
+                                        st.session_state.shares[final_ticker] = None
+                                    st.success(f"{final_ticker} added successfully")
                                     st.session_state.show_add_form = False
                                     st.rerun()
                             except Exception as e:
-                                st.error(f"Stock not available")
+                                st.error(f"Could not find stock. Try using ticker symbol (e.g., AAPL)")
         
         st.markdown("<br>", unsafe_allow_html=True)
     
@@ -1163,12 +1163,16 @@ def show_dashboard():
     """, unsafe_allow_html=True)
     
     # Action buttons at top
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
+        if st.button("← Menu", use_container_width=True):
+            st.session_state.screen = 'menu'
+            st.rerun()
+    with col2:
         if st.button("Add More Stocks", use_container_width=True):
             st.session_state.screen = 'manage'
             st.rerun()
-    with col2:
+    with col3:
         if st.button("Refresh Scores", use_container_width=True):
             st.session_state.screen = 'calculating'
             st.rerun()
@@ -1615,7 +1619,7 @@ def show_stock_detail():
                 y=ma20,
                 mode='lines',
                 name='20-Day Average',
-                line=dict(color='#c9a961', width=2.5),
+                line=dict(color='#e6e0d5', width=2.5),
                 hovertemplate='<b>%{x|%B %d}</b><br>Average: $%{y:.2f}<extra></extra>'
             ))
         
