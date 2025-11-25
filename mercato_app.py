@@ -17,7 +17,7 @@ try:
         LOGO_BASE64 = base64.b64encode(f.read()).decode()
 except:
     # Fallback SVG if logo file not found
-    LOGO_BASE64 = None, timedelta
+    LOGO_BASE64 = None
 
 # Page config
 st.set_page_config(
