@@ -906,40 +906,38 @@ def show_how_to_use():
     st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 30px; color: #343967;">How to Use Mercato</div>', unsafe_allow_html=True)
     
     st.markdown("""
-        <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #e6e0d5; margin-bottom: 20px;">Getting Started</h3>
-            <p style="font-size: 16px; line-height: 1.8;">
-                1. <b>Add Stocks:</b> Click "My Portfolio" from the main menu, then add stock tickers (like AAPL, TSLA, etc.)<br><br>
-                2. <b>Enter Shares (Optional):</b> If you want to track your money, enter how many shares you own<br><br>
-                3. <b>View Scores:</b> See health scores (0-100) for each stock across 5 categories<br><br>
-                4. <b>Track Performance:</b> Watch daily gains/losses if you entered share counts
-            </p>
-        </div>
-        
-        <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #e6e0d5; margin-bottom: 20px;">Understanding Scores</h3>
-            <p style="font-size: 16px; line-height: 1.8;">
-                Each stock gets scored in <b>5 categories</b> (0-20 points each):<br><br>
-                
-                • <b>Financial Health:</b> Can the company pay its bills?<br>
-                • <b>Profitability:</b> How much money does it keep?<br>
-                • <b>Growth:</b> Is it getting bigger?<br>
-                • <b>Momentum:</b> Is the stock price trending up?<br>
-                • <b>Stability:</b> How risky/volatile is it?<br><br>
-                
-                Add them up = Final score out of 100
-            </p>
-        </div>
-        
-        <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #e6e0d5; margin-bottom: 20px;">Features</h3>
-            <p style="font-size: 16px; line-height: 1.8;">
-                • <b>Daily Insights:</b> Get analysis of your portfolio performance<br>
-                • <b>Charts:</b> View price charts (line or candlestick)<br>
-                • <b>Position Tracking:</b> See exactly how much money you made/lost today<br>
-                • <b>Score Breakdown:</b> Detailed view of each stock's health metrics
-            </p>
-        </div>
+<div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
+    <h3 style="color: #e6e0d5; margin-bottom: 20px;">Getting Started</h3>
+    <p style="font-size: 16px; line-height: 1.8;">
+        1. <b>Add Stocks:</b> Click "My Portfolio" from the main menu, then add stock tickers (like AAPL, TSLA, etc.)<br><br>
+        2. <b>Enter Shares (Optional):</b> If you want to track your money, enter how many shares you own<br><br>
+        3. <b>View Scores:</b> See health scores (0-100) for each stock across 5 categories<br><br>
+        4. <b>Track Performance:</b> Watch daily gains/losses if you entered share counts
+    </p>
+</div>
+
+<div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
+    <h3 style="color: #e6e0d5; margin-bottom: 20px;">Understanding Scores</h3>
+    <p style="font-size: 16px; line-height: 1.8;">
+        Each stock gets scored in <b>5 categories</b> (0-20 points each):<br><br>
+        • <b>Financial Health:</b> Can the company pay its bills?<br>
+        • <b>Profitability:</b> How much money does it keep?<br>
+        • <b>Growth:</b> Is it getting bigger?<br>
+        • <b>Momentum:</b> Is the stock price trending up?<br>
+        • <b>Stability:</b> How risky/volatile is it?<br><br>
+        Add them up = Final score out of 100
+    </p>
+</div>
+
+<div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
+    <h3 style="color: #e6e0d5; margin-bottom: 20px;">Features</h3>
+    <p style="font-size: 16px; line-height: 1.8;">
+        • <b>Daily Insights:</b> Get analysis of your portfolio performance<br>
+        • <b>Charts:</b> View price charts (line or candlestick)<br>
+        • <b>Position Tracking:</b> See exactly how much money you made/lost today<br>
+        • <b>Score Breakdown:</b> Detailed view of each stock's health metrics
+    </p>
+</div>
     """, unsafe_allow_html=True)
     
     if st.button("← Back to Menu", use_container_width=True):
