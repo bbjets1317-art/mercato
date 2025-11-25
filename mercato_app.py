@@ -1195,30 +1195,7 @@ def show_dashboard():
             total_value += stock_value
             total_daily_change += stock_daily_change
     
-    # Show portfolio value summary if user has shares entered
-    if stocks_with_shares > 0:
-        daily_change_pct = (total_daily_change / (total_value - total_daily_change)) * 100 if (total_value - total_daily_change) != 0 else 0
-        change_color = "#10b981" if total_daily_change >= 0 else "#ef4444"
-        sign = "+" if total_daily_change >= 0 else ""
-        
-        st.markdown(f"""
-            <div style="background: #343967; padding: 30px; border-radius: 16px; margin-bottom: 30px; text-align: center; border: 1px solid rgba(230, 224, 213, 0.2);">
-                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">
-                    Portfolio Value
-                </div>
-                <div style="color: #e6e0d5; font-size: 48px; font-weight: 200; font-family: Georgia; margin: 10px 0;">
-                    ${total_value:,.2f}
-                </div>
-                <div style="color: {change_color}; font-size: 24px; font-family: Georgia; margin-top: 10px;">
-                    {sign}${abs(total_daily_change):,.2f} ({sign}{daily_change_pct:.2f}%)
-                </div>
-                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; margin-top: 8px;">
-                    Today
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    # Portfolio Health Score
+    # Portfolio Health Score - FIRST
     portfolio_score = calculate_portfolio_score(st.session_state.stock_scores)
     
     # Create gauge chart
@@ -1268,6 +1245,29 @@ def show_dashboard():
             <b>Score: {portfolio_score} / 100</b>
         </div>
     """, unsafe_allow_html=True)
+    
+    # Show portfolio value summary AFTER score - if user has shares entered
+    if stocks_with_shares > 0:
+        daily_change_pct = (total_daily_change / (total_value - total_daily_change)) * 100 if (total_value - total_daily_change) != 0 else 0
+        change_color = "#10b981" if total_daily_change >= 0 else "#ef4444"
+        sign = "+" if total_daily_change >= 0 else ""
+        
+        st.markdown(f"""
+            <div style="background: #343967; padding: 30px; border-radius: 16px; margin-bottom: 30px; text-align: center; border: 1px solid rgba(230, 224, 213, 0.2);">
+                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">
+                    Portfolio Value
+                </div>
+                <div style="color: #e6e0d5; font-size: 48px; font-weight: 200; font-family: Georgia; margin: 10px 0;">
+                    ${total_value:,.2f}
+                </div>
+                <div style="color: {change_color}; font-size: 24px; font-family: Georgia; margin-top: 10px;">
+                    {sign}${abs(total_daily_change):,.2f} ({sign}{daily_change_pct:.2f}%)
+                </div>
+                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; margin-top: 8px;">
+                    Today
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     
     # Insights
     st.markdown('<div class="section-header">Daily Insights</div>', unsafe_allow_html=True)
@@ -1341,9 +1341,12 @@ def show_dashboard():
                 change_color = "#10b981" if daily_change >= 0 else "#ef4444"
                 sign_dollar = "+" if daily_change >= 0 else ""
                 
+                # Round shares for clean display
+                shares_display = round(shares, 2) if shares % 1 != 0 else int(shares)
+                
                 st.markdown(f"""
                     <div style="color: {change_color}; font-size: 16px; margin-top: 8px; font-weight: 600;">
-                        {shares} shares • {sign_dollar}${abs(daily_change):.2f} today
+                        {shares_display} shares • {sign_dollar}${abs(daily_change):.2f} today
                     </div>
                 """, unsafe_allow_html=True)
             
@@ -1439,6 +1442,9 @@ def show_stock_detail():
         position_value = stock["price"] * shares
         daily_change = price_change_dollars * shares
         
+        # Round shares for display
+        shares_display = round(shares, 2) if shares % 1 != 0 else int(shares)
+        
         st.markdown(f"""
             <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px auto; max-width: 600px; text-align: center; border: 1px solid rgba(230, 224, 213, 0.2);">
                 <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">
@@ -1448,7 +1454,7 @@ def show_stock_detail():
                     ${position_value:,.2f}
                 </div>
                 <div style="color: #d0c9bc; font-size: 16px; font-family: Georgia; margin-bottom: 20px;">
-                    {shares} shares at ${stock["price"]:.2f}
+                    {shares_display} shares at ${stock["price"]:.2f}
                 </div>
                 <div style="color: {change_color}; font-size: 28px; font-family: Georgia; margin-top: 10px;">
                     {sign}${abs(daily_change):,.2f}
@@ -1724,15 +1730,13 @@ def show_manage():
 
 def main():
     if 'screen' not in st.session_state:
-        st.session_state.screen = 'welcome'
+        st.session_state.screen = 'menu'
     if 'portfolio' not in st.session_state:
         st.session_state.portfolio = []
     if 'stock_scores' not in st.session_state:
         st.session_state.stock_scores = []
     if 'selected_stock' not in st.session_state:
         st.session_state.selected_stock = None
-    if 'screen' not in st.session_state:
-        st.session_state.screen = 'menu'
     
     if st.session_state.screen == 'menu':
         show_menu()
