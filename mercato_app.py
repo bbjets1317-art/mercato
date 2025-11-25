@@ -369,7 +369,7 @@ st.markdown("""
     }
     
     .subscore-label {
-        color: #e6e0d5;
+        color: #343967;
         font-size: 12px;
         margin-bottom: 6px;
         text-transform: uppercase;
@@ -378,14 +378,14 @@ st.markdown("""
     }
     
     .subscore-bar {
-        background: #2a2f52;
+        background: #e6e0d5;
         height: 8px;
         border-radius: 4px;
         overflow: hidden;
     }
     
     .subscore-fill {
-        background: linear-gradient(90deg, #e6e0d5 0%, #d0c9bc 100%);
+        background: #343967;
         height: 100%;
         border-radius: 4px;
         transition: width 0.8s ease;
