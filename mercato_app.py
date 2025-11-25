@@ -10,6 +10,109 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 import base64
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from io import BytesIO
+
+# Company name to ticker mapping
+COMPANY_TICKER_MAP = {
+    'APPLE': 'AAPL',
+    'MICROSOFT': 'MSFT',
+    'GOOGLE': 'GOOGL',
+    'ALPHABET': 'GOOGL',
+    'AMAZON': 'AMZN',
+    'TESLA': 'TSLA',
+    'META': 'META',
+    'FACEBOOK': 'META',
+    'NVIDIA': 'NVDA',
+    'NETFLIX': 'NFLX',
+    'DISNEY': 'DIS',
+    'WALMART': 'WMT',
+    'VISA': 'V',
+    'MASTERCARD': 'MA',
+    'JPMORGAN': 'JPM',
+    'JP MORGAN': 'JPM',
+    'BANK OF AMERICA': 'BAC',
+    'COCA COLA': 'KO',
+    'COCACOLA': 'KO',
+    'COKE': 'KO',
+    'PEPSI': 'PEP',
+    'MCDONALD': 'MCD',
+    'MCDONALDS': 'MCD',
+    'NIKE': 'NKE',
+    'STARBUCKS': 'SBUX',
+    'BOEING': 'BA',
+    'INTEL': 'INTC',
+    'AMD': 'AMD',
+    'CISCO': 'CSCO',
+    'ORACLE': 'ORCL',
+    'IBM': 'IBM',
+    'SALESFORCE': 'CRM',
+    'ADOBE': 'ADBE',
+    'PAYPAL': 'PYPL',
+    'UBER': 'UBER',
+    'LYFT': 'LYFT',
+    'AIRBNB': 'ABNB',
+    'SPOTIFY': 'SPOT',
+    'TWITTER': 'TWTR',
+    'SNAP': 'SNAP',
+    'SNAPCHAT': 'SNAP',
+    'PINTEREST': 'PINS',
+    'ZOOM': 'ZM',
+    'SHOPIFY': 'SHOP',
+    'SQUARE': 'SQ',
+    'BLOCK': 'SQ',
+    'ROBINHOOD': 'HOOD',
+    'COINBASE': 'COIN',
+    'MODERNA': 'MRNA',
+    'PFIZER': 'PFE',
+    'JOHNSON': 'JNJ',
+    'JOHNSON & JOHNSON': 'JNJ',
+    'EXXON': 'XOM',
+    'CHEVRON': 'CVX',
+    'FORD': 'F',
+    'GM': 'GM',
+    'GENERAL MOTORS': 'GM',
+    'GENERAL ELECTRIC': 'GE',
+    'CATERPILLAR': 'CAT',
+    'DEERE': 'DE',
+    'JOHN DEERE': 'DE',
+    'HOME DEPOT': 'HD',
+    'LOWES': 'LOW',
+    'TARGET': 'TGT',
+    'COSTCO': 'COST',
+    'PROCTER': 'PG',
+    'PROCTER & GAMBLE': 'PG',
+    'VERIZON': 'VZ',
+    'AT&T': 'T',
+    'ATT': 'T',
+    'T-MOBILE': 'TMUS',
+    'TMOBILE': 'TMUS',
+    'COMCAST': 'CMCSA',
+    'WELLS FARGO': 'WFC',
+    'CITIGROUP': 'C',
+    'CITI': 'C',
+    'MORGAN STANLEY': 'MS',
+    'GOLDMAN SACHS': 'GS',
+    'AMERICAN EXPRESS': 'AXP',
+    'AMEX': 'AXP',
+    'DELTA': 'DAL',
+    'UNITED': 'UAL',
+    'AMERICAN AIRLINES': 'AAL',
+    'SOUTHWEST': 'LUV',
+    'MARRIOTT': 'MAR',
+    'HILTON': 'HLT',
+    'BOOKING': 'BKNG',
+    'DOORDASH': 'DASH',
+    'CHIPOTLE': 'CMG',
+    'DOMINOS': 'DPZ',
+    'YUM': 'YUM',
+    'MONDELEZ': 'MDLZ'
+}
 
 # Load logo as base64
 try:
@@ -51,9 +154,9 @@ st.markdown("""
     .stDeployButton {display:none;}
     header {visibility: hidden;}
     
-    /* Main background - Gradient old money beige */
+    /* Main background - White for better contrast */
     .main {
-        background: linear-gradient(135deg, #f5f0e8 0%, #e6e0d5 50%, #d9d0c1 100%);
+        background: #ffffff;
         min-height: 100vh;
         padding: 20px 0;
     }
@@ -795,15 +898,11 @@ def show_menu():
                 st.session_state.screen = 'welcome'
             st.rerun()
         
-        if st.button("Leaderboard", use_container_width=True):
-            st.session_state.screen = 'leaderboard'
-            st.rerun()
-    
-    with col2:
         if st.button("How to Use", use_container_width=True):
             st.session_state.screen = 'how_to_use'
             st.rerun()
-        
+    
+    with col2:
         if st.button("About Us", use_container_width=True):
             st.session_state.screen = 'about'
             st.rerun()
@@ -842,10 +941,10 @@ def show_how_to_use():
         <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
             <h3 style="color: #e6e0d5; margin-bottom: 20px;">Features</h3>
             <p style="font-size: 16px; line-height: 1.8;">
-                • <b>Leaderboard:</b> See top 5 and bottom 5 stocks by score<br>
-                • <b>Daily Insights:</b> Get AI-generated analysis of your portfolio<br>
+                • <b>Daily Insights:</b> Get analysis of your portfolio performance<br>
                 • <b>Charts:</b> View price charts (line or candlestick)<br>
-                • <b>Position Tracking:</b> See exactly how much money you made/lost today
+                • <b>Position Tracking:</b> See exactly how much money you made/lost today<br>
+                • <b>Score Breakdown:</b> Detailed view of each stock's health metrics
             </p>
         </div>
     """, unsafe_allow_html=True)
@@ -907,59 +1006,6 @@ def show_about():
         st.rerun()
 
 
-def show_leaderboard():
-    """Leaderboard showing top and bottom stocks"""
-    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 20px; color: #343967;">Your Portfolio Leaderboard</div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align: center; color: #343967; font-size: 18px; margin-bottom: 30px;">Top and bottom performers from your stocks</div>', unsafe_allow_html=True)
-    
-    if not st.session_state.stock_scores:
-        st.markdown("""
-            <div style="background: #343967; padding: 40px; border-radius: 16px; text-align: center; color: #e6e0d5;">
-                <p style="font-size: 18px;">Add stocks to your portfolio to see the leaderboard!</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("Add Stocks", use_container_width=True):
-            st.session_state.screen = 'welcome'
-            st.rerun()
-    else:
-        # Sort stocks by score
-        sorted_stocks = sorted(st.session_state.stock_scores, key=lambda x: x['final_score'], reverse=True)
-        
-        # Top 5
-        st.markdown('<div class="section-header" style="color: #10b981;">🏆 Top 5 Stocks</div>', unsafe_allow_html=True)
-        
-        top_5 = sorted_stocks[:5]
-        for i, stock in enumerate(top_5, 1):
-            shares = st.session_state.shares.get(stock['ticker'])
-            shares_text = f" • {shares} shares" if shares and shares > 0 else ""
-            
-            st.markdown(f"""
-                <div style="background: #343967; padding: 20px; border-radius: 12px; margin: 10px 0; border-left: 4px solid #10b981;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <span style="color: #e6e0d5; font-size: 24px; font-weight: 700;">#{i}</span>
-                            <span style="color: #e6e0d5; font-size: 20px; font-weight: 600; margin-left: 15px;">{stock['ticker']}</span>
-                            <span style="color: #d0c9bc; font-size: 16px; margin-left: 10px;">{stock['company_name']}{shares_text}</span>
-                        </div>
-                        <div style="color: #e6e0d5; font-size: 32px; font-weight: 200;">{stock['final_score']}</div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← Back to Menu", use_container_width=True):
-            st.session_state.screen = 'menu'
-            st.rerun()
-    with col2:
-        if st.button("Go to Portfolio", use_container_width=True):
-            st.session_state.screen = 'dashboard'
-            st.rerun()
-
-
 def show_welcome():
     """Welcome screen"""
     logo_html = f'<img src="data:image/png;base64,{LOGO_BASE64}" style="width: 120px; height: 120px; border-radius: 16px;"/>' if LOGO_BASE64 else '<svg width=120 height=120 viewBox="0 0 150 150" fill="none"><path d="M75 20L50 60V130H75V130H100V60L75 20Z" fill="#343967"/><path d="M35 40L20 60V130H35V130H50V60L35 40Z" fill="#343967"/><path d="M115 40L100 60V130H115V130H130V60L115 40Z" fill="#343967"/></svg>'
@@ -1013,40 +1059,27 @@ def show_add_stocks():
             if st.button("Add to Portfolio", use_container_width=True):
                 if ticker_input:
                     # Try to convert company name to ticker if needed
-                    search_term = ticker_input.upper().strip()
+                    search_term = ticker_input.strip().upper()
                     
-                    if search_term in st.session_state.portfolio:
-                        st.warning(f"{search_term} already in portfolio")
+                    # Check if it's a company name we know
+                    if search_term in COMPANY_TICKER_MAP:
+                        final_ticker = COMPANY_TICKER_MAP[search_term]
                     else:
-                        # Validate ticker first
-                        with st.spinner('Searching...'):
+                        final_ticker = search_term
+                    
+                    if final_ticker in st.session_state.portfolio:
+                        st.warning(f"{final_ticker} already in portfolio")
+                    else:
+                        # Validate ticker
+                        with st.spinner('Validating...'):
                             try:
-                                # First try as-is (in case it's already a ticker)
-                                test_stock = yf.Ticker(search_term)
+                                test_stock = yf.Ticker(final_ticker)
                                 test_hist = test_stock.history(period="5d")
                                 
-                                # If it works, use it
-                                if not test_hist.empty and len(test_hist) > 0:
-                                    final_ticker = search_term
+                                # Check if we got valid price data
+                                if test_hist.empty or len(test_hist) == 0:
+                                    st.error(f"Stock not available. Try using the ticker symbol (e.g., AAPL)")
                                 else:
-                                    # Try searching for company name
-                                    try:
-                                        search_results = yf.Ticker(search_term)
-                                        info = search_results.info
-                                        final_ticker = info.get('symbol', search_term)
-                                        
-                                        # Validate the found ticker
-                                        test_stock = yf.Ticker(final_ticker)
-                                        test_hist = test_stock.history(period="5d")
-                                        
-                                        if test_hist.empty or len(test_hist) == 0:
-                                            st.error(f"Could not find stock. Try using ticker symbol (e.g., AAPL)")
-                                            final_ticker = None
-                                    except:
-                                        st.error(f"Could not find stock. Try using ticker symbol (e.g., AAPL)")
-                                        final_ticker = None
-                                
-                                if final_ticker:
                                     # Stock is valid - add to portfolio with shares
                                     st.session_state.portfolio.append(final_ticker)
                                     if shares_input > 0:
@@ -1057,7 +1090,7 @@ def show_add_stocks():
                                     st.session_state.show_add_form = False
                                     st.rerun()
                             except Exception as e:
-                                st.error(f"Could not find stock. Try using ticker symbol (e.g., AAPL)")
+                                st.error(f"Stock not available. Try using the ticker symbol (e.g., AAPL)")
         
         st.markdown("<br>", unsafe_allow_html=True)
     
@@ -1143,6 +1176,126 @@ def show_calculating():
     st.rerun()
 
 
+def generate_portfolio_pdf(stock_scores, shares_dict):
+    """Generate PDF report of portfolio"""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#343967'),
+        spaceAfter=30,
+        alignment=TA_CENTER
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#343967'),
+        spaceAfter=12,
+        spaceBefore=20
+    )
+    
+    # Title
+    title = Paragraph("Mercato Portfolio Report", title_style)
+    story.append(title)
+    
+    # Date
+    date_text = Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", styles['Normal'])
+    story.append(date_text)
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Portfolio Summary
+    portfolio_score = calculate_portfolio_score(stock_scores)
+    summary_heading = Paragraph("Portfolio Overview", heading_style)
+    story.append(summary_heading)
+    
+    summary_data = [
+        ['Portfolio Health Score', f'{portfolio_score}/100'],
+        ['Total Stocks', str(len(stock_scores))],
+        ['Report Date', datetime.now().strftime('%B %d, %Y')]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f5f5f5')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#343967')),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('TOPPADDING', (0, 0), (-1, -1), 12),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#343967'))
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 0.5*inch))
+    
+    # Stock Breakdown
+    breakdown_heading = Paragraph("Stock Breakdown", heading_style)
+    story.append(breakdown_heading)
+    
+    # Sort stocks by score
+    sorted_stocks = sorted(stock_scores, key=lambda x: x['final_score'], reverse=True)
+    
+    for stock in sorted_stocks:
+        # Stock header
+        shares = shares_dict.get(stock['ticker'])
+        shares_text = f" ({shares} shares)" if shares and shares > 0 else ""
+        
+        stock_title = Paragraph(
+            f"<b>{stock['ticker']}</b> - {stock['company_name']}{shares_text}",
+            heading_style
+        )
+        story.append(stock_title)
+        
+        # Stock details
+        price_change_sign = '+' if stock['price_change'] >= 0 else ''
+        
+        details_data = [
+            ['Current Price', f"${stock['price']:.2f}"],
+            ['Daily Change', f"{price_change_sign}{stock['price_change']:.2f}%"],
+            ['Overall Score', f"{stock['final_score']}/100"],
+            ['', '']  # Blank row
+        ]
+        
+        # Score breakdown
+        scores_data = [
+            ['Financial Health', f"{stock['financial_health']}/20"],
+            ['Profitability', f"{stock['profitability']}/20"],
+            ['Growth', f"{stock['growth']}/20"],
+            ['Momentum', f"{stock['momentum']}/20"],
+            ['Stability', f"{stock['stability']}/20"]
+        ]
+        
+        combined_data = details_data + scores_data
+        
+        stock_table = Table(combined_data, colWidths=[2.5*inch, 2*inch])
+        stock_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 3), colors.HexColor('#e6e0d5')),
+            ('BACKGROUND', (0, 4), (-1, -1), colors.HexColor('#f5f5f5')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#343967')),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#343967'))
+        ]))
+        story.append(stock_table)
+        story.append(Spacer(1, 0.3*inch))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
 def show_dashboard():
     """Main dashboard"""
     if not st.session_state.stock_scores:
@@ -1163,7 +1316,7 @@ def show_dashboard():
     """, unsafe_allow_html=True)
     
     # Action buttons at top
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         if st.button("← Menu", use_container_width=True):
             st.session_state.screen = 'menu'
@@ -1176,6 +1329,15 @@ def show_dashboard():
         if st.button("Refresh Scores", use_container_width=True):
             st.session_state.screen = 'calculating'
             st.rerun()
+    with col4:
+        pdf_buffer = generate_portfolio_pdf(st.session_state.stock_scores, st.session_state.shares)
+        st.download_button(
+            label="Export PDF",
+            data=pdf_buffer,
+            file_name=f"mercato_portfolio_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
     
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -1748,8 +1910,6 @@ def main():
         show_how_to_use()
     elif st.session_state.screen == 'about':
         show_about()
-    elif st.session_state.screen == 'leaderboard':
-        show_leaderboard()
     elif st.session_state.screen == 'welcome':
         show_welcome()
     elif st.session_state.screen == 'add_stocks':
