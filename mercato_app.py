@@ -17,7 +17,7 @@ try:
         LOGO_BASE64 = base64.b64encode(f.read()).decode()
 except:
     # Fallback SVG if logo file not found
-    LOGO_BASE64 = None
+    LOGO_BASE64 = None, timedelta
 
 # Page config
 st.set_page_config(
@@ -769,6 +769,211 @@ def generate_insights(stock_scores):
 
 # ============ SCREEN FUNCTIONS ============
 
+def show_menu():
+    """Main menu screen"""
+    logo_html = f'<img src="data:image/png;base64,{LOGO_BASE64}" style="width: 100px; height: 100px; border-radius: 16px;"/>' if LOGO_BASE64 else '<svg width=100 height=100 viewBox="0 0 150 150" fill="none"><path d="M75 20L50 60V130H75V130H100V60L75 20Z" fill="#343967"/><path d="M35 40L20 60V130H35V130H50V60L35 40Z" fill="#343967"/><path d="M115 40L100 60V130H115V130H130V60L115 40Z" fill="#343967"/></svg>'
+    
+    st.markdown(f"""
+        <div class="welcome-container">
+            <div class="welcome-logo">
+                {logo_html}
+            </div>
+            <div class="welcome-title">Mercato</div>
+            <div class="welcome-tagline">The market made simple</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("My Portfolio", use_container_width=True):
+            if st.session_state.portfolio:
+                st.session_state.screen = 'calculating'
+            else:
+                st.session_state.screen = 'welcome'
+            st.rerun()
+        
+        if st.button("Leaderboard", use_container_width=True):
+            st.session_state.screen = 'leaderboard'
+            st.rerun()
+    
+    with col2:
+        if st.button("How to Use", use_container_width=True):
+            st.session_state.screen = 'how_to_use'
+            st.rerun()
+        
+        if st.button("About Us", use_container_width=True):
+            st.session_state.screen = 'about'
+            st.rerun()
+
+
+def show_how_to_use():
+    """How to use instructions"""
+    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 30px; color: #343967;">How to Use Mercato</div>', unsafe_allow_html=True)
+    
+    st.markdown("""
+        <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
+            <h3 style="color: #c9a961; margin-bottom: 20px;">Getting Started</h3>
+            <p style="font-size: 16px; line-height: 1.8;">
+                1. <b>Add Stocks:</b> Click "My Portfolio" from the main menu, then add stock tickers (like AAPL, TSLA, etc.)<br><br>
+                2. <b>Enter Shares (Optional):</b> If you want to track your money, enter how many shares you own<br><br>
+                3. <b>View Scores:</b> See health scores (0-100) for each stock across 5 categories<br><br>
+                4. <b>Track Performance:</b> Watch daily gains/losses if you entered share counts
+            </p>
+        </div>
+        
+        <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
+            <h3 style="color: #c9a961; margin-bottom: 20px;">Understanding Scores</h3>
+            <p style="font-size: 16px; line-height: 1.8;">
+                Each stock gets scored in <b>5 categories</b> (0-20 points each):<br><br>
+                
+                • <b>Financial Health:</b> Can the company pay its bills?<br>
+                • <b>Profitability:</b> How much money does it keep?<br>
+                • <b>Growth:</b> Is it getting bigger?<br>
+                • <b>Momentum:</b> Is the stock price trending up?<br>
+                • <b>Stability:</b> How risky/volatile is it?<br><br>
+                
+                Add them up = Final score out of 100
+            </p>
+        </div>
+        
+        <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
+            <h3 style="color: #c9a961; margin-bottom: 20px;">Features</h3>
+            <p style="font-size: 16px; line-height: 1.8;">
+                • <b>Leaderboard:</b> See top 5 and bottom 5 stocks by score<br>
+                • <b>Daily Insights:</b> Get AI-generated analysis of your portfolio<br>
+                • <b>Charts:</b> View price charts (line or candlestick)<br>
+                • <b>Position Tracking:</b> See exactly how much money you made/lost today
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if st.button("← Back to Menu", use_container_width=True):
+        st.session_state.screen = 'menu'
+        st.rerun()
+
+
+def show_about():
+    """About us page"""
+    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 30px; color: #343967;">About Mercato</div>', unsafe_allow_html=True)
+    
+    st.markdown("""
+        <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5; text-align: center;">
+            <h2 style="color: #c9a961; margin-bottom: 30px;">Our Mission</h2>
+            <p style="font-size: 18px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
+                Mercato makes stock analysis simple and accessible for everyone. 
+                We believe investing shouldn't require a finance degree or expensive tools.
+            </p>
+        </div>
+        
+        <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
+            <h3 style="color: #c9a961; margin-bottom: 20px; text-align: center;">What We Do</h3>
+            <p style="font-size: 16px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
+                We analyze stocks across five key dimensions—Financial Health, Profitability, Growth, 
+                Momentum, and Stability—giving you a clear, easy-to-understand score out of 100. 
+                No confusing jargon, just straightforward insights.
+            </p>
+        </div>
+        
+        <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
+            <h3 style="color: #c9a961; margin-bottom: 20px; text-align: center;">Why Mercato?</h3>
+            <p style="font-size: 16px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
+                • <b>Simple Scores:</b> Understand any stock in seconds<br>
+                • <b>Real Data:</b> Powered by live market information<br>
+                • <b>Track Your Money:</b> See exactly what you're gaining or losing<br>
+                • <b>Clean Design:</b> No clutter, just what matters<br>
+                • <b>Free to Use:</b> Powerful analysis for everyone
+            </p>
+        </div>
+        
+        <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #d0c9bc; text-align: center; font-size: 14px;">
+            <p><b>Disclaimer:</b> Mercato provides educational analysis only. This is not financial advice. 
+            Always do your own research and consult with a financial advisor before making investment decisions.</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if st.button("← Back to Menu", use_container_width=True):
+        st.session_state.screen = 'menu'
+        st.rerun()
+
+
+def show_leaderboard():
+    """Leaderboard showing top and bottom stocks"""
+    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 30px; color: #343967;">Stock Leaderboard</div>', unsafe_allow_html=True)
+    
+    if not st.session_state.stock_scores:
+        st.markdown("""
+            <div style="background: #343967; padding: 40px; border-radius: 16px; text-align: center; color: #e6e0d5;">
+                <p style="font-size: 18px;">Add stocks to your portfolio to see the leaderboard!</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Add Stocks", use_container_width=True):
+            st.session_state.screen = 'welcome'
+            st.rerun()
+    else:
+        # Sort stocks by score
+        sorted_stocks = sorted(st.session_state.stock_scores, key=lambda x: x['final_score'], reverse=True)
+        
+        # Top 5
+        st.markdown('<div class="section-header" style="color: #10b981;">🏆 Top 5 Stocks</div>', unsafe_allow_html=True)
+        
+        top_5 = sorted_stocks[:5]
+        for i, stock in enumerate(top_5, 1):
+            shares = st.session_state.shares.get(stock['ticker'])
+            shares_text = f" • {shares} shares" if shares and shares > 0 else ""
+            
+            st.markdown(f"""
+                <div style="background: #343967; padding: 20px; border-radius: 12px; margin: 10px 0; border-left: 4px solid #10b981;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="color: #c9a961; font-size: 24px; font-weight: 700;">#{i}</span>
+                            <span style="color: #e6e0d5; font-size: 20px; font-weight: 600; margin-left: 15px;">{stock['ticker']}</span>
+                            <span style="color: #d0c9bc; font-size: 16px; margin-left: 10px;">{stock['company_name']}{shares_text}</span>
+                        </div>
+                        <div style="color: #e6e0d5; font-size: 32px; font-weight: 200;">{stock['final_score']}</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Bottom 5
+        st.markdown('<div class="section-header" style="color: #ef4444;">⚠️ Bottom 5 Stocks</div>', unsafe_allow_html=True)
+        
+        bottom_5 = sorted_stocks[-5:][::-1]
+        for i, stock in enumerate(bottom_5, 1):
+            shares = st.session_state.shares.get(stock['ticker'])
+            shares_text = f" • {shares} shares" if shares and shares > 0 else ""
+            
+            st.markdown(f"""
+                <div style="background: #343967; padding: 20px; border-radius: 12px; margin: 10px 0; border-left: 4px solid #ef4444;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="color: #ef4444; font-size: 20px; font-weight: 700;">#{len(sorted_stocks) - i + 1}</span>
+                            <span style="color: #e6e0d5; font-size: 20px; font-weight: 600; margin-left: 15px;">{stock['ticker']}</span>
+                            <span style="color: #d0c9bc; font-size: 16px; margin-left: 10px;">{stock['company_name']}{shares_text}</span>
+                        </div>
+                        <div style="color: #e6e0d5; font-size: 32px; font-weight: 200;">{stock['final_score']}</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("← Back to Menu", use_container_width=True):
+            st.session_state.screen = 'menu'
+            st.rerun()
+    with col2:
+        if st.button("Go to Portfolio", use_container_width=True):
+            st.session_state.screen = 'dashboard'
+            st.rerun()
+
+
 def show_welcome():
     """Welcome screen"""
     logo_html = f'<img src="data:image/png;base64,{LOGO_BASE64}" style="width: 120px; height: 120px; border-radius: 16px;"/>' if LOGO_BASE64 else '<svg width=120 height=120 viewBox="0 0 150 150" fill="none"><path d="M75 20L50 60V130H75V130H100V60L75 20Z" fill="#343967"/><path d="M35 40L20 60V130H35V130H50V60L35 40Z" fill="#343967"/><path d="M115 40L100 60V130H115V130H130V60L115 40Z" fill="#343967"/></svg>'
@@ -1059,6 +1264,37 @@ def show_dashboard():
     # Insights
     st.markdown('<div class="section-header">Daily Insights</div>', unsafe_allow_html=True)
     
+    # Show total portfolio gain/loss if user has shares
+    total_portfolio_change = 0
+    stocks_with_shares_count = 0
+    
+    for stock in st.session_state.stock_scores:
+        ticker = stock['ticker']
+        shares = st.session_state.shares.get(ticker)
+        if shares and shares > 0:
+            stocks_with_shares_count += 1
+            price_change_dollars = stock["price_change"] / 100 * stock["price"]
+            daily_change = price_change_dollars * shares
+            total_portfolio_change += daily_change
+    
+    if stocks_with_shares_count > 0:
+        change_color = "#10b981" if total_portfolio_change >= 0 else "#ef4444"
+        sign = "+" if total_portfolio_change >= 0 else ""
+        
+        st.markdown(f"""
+            <div style="background: #343967; padding: 25px; border-radius: 14px; margin: 15px 0; border-left: 4px solid {change_color};">
+                <div style="color: #e6e0d5; font-size: 18px; font-weight: 600; margin-bottom: 8px;">
+                    Total Portfolio Performance Today
+                </div>
+                <div style="color: {change_color}; font-size: 32px; font-weight: 500;">
+                    {sign}${abs(total_portfolio_change):,.2f}
+                </div>
+                <div style="color: #d0c9bc; font-size: 14px; margin-top: 8px;">
+                    Across {stocks_with_shares_count} position{'s' if stocks_with_shares_count > 1 else ''}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    
     insights = generate_insights(st.session_state.stock_scores)
     for insight in insights:
         st.markdown(f'<div class="insight-card"><div class="insight-text">{insight}</div></div>', unsafe_allow_html=True)
@@ -1243,6 +1479,15 @@ def show_stock_detail():
     
     st.markdown('<div class="section-header">Score Breakdown</div>', unsafe_allow_html=True)
     
+    # Score descriptions
+    score_descriptions = {
+        'Financial Health': 'Measures the company\'s overall stability and ability to withstand downturns. Looks at cash reserves, debt levels, and ability to pay bills.',
+        'Profitability': 'Evaluates how efficiently the company turns revenue into real earnings. Higher margins mean more money kept from each sale.',
+        'Growth': 'Shows how quickly the company\'s revenue, earnings, and cash flow are expanding over time. Faster growth often means higher potential.',
+        'Momentum': 'Tracks how the stock has been performing recently compared to the market. Positive momentum suggests investor confidence.',
+        'Stability': 'Assesses how steady or volatile the company\'s stock and business performance are over time. Lower volatility means less risk.'
+    }
+    
     subscores = [
         ('Financial Health', stock['financial_health']),
         ('Profitability', stock['profitability']),
@@ -1253,6 +1498,8 @@ def show_stock_detail():
     
     for label, score in subscores:
         width_pct = (score/20)*100
+        description = score_descriptions.get(label, '')
+        
         st.markdown(f"""
             <div class="subscore-detail">
                 <div class="subscore-detail-label">{label}</div>
@@ -1262,6 +1509,9 @@ def show_stock_detail():
                 </div>
                 <div class="subscore-bar" style="height: 10px; margin-top: 16px;">
                     <div class="subscore-fill" style="width: {width_pct}%"></div>
+                </div>
+                <div style="color: #d0c9bc; font-size: 14px; margin-top: 12px; line-height: 1.5;">
+                    {description}
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -1473,8 +1723,18 @@ def main():
         st.session_state.stock_scores = []
     if 'selected_stock' not in st.session_state:
         st.session_state.selected_stock = None
+    if 'screen' not in st.session_state:
+        st.session_state.screen = 'menu'
     
-    if st.session_state.screen == 'welcome':
+    if st.session_state.screen == 'menu':
+        show_menu()
+    elif st.session_state.screen == 'how_to_use':
+        show_how_to_use()
+    elif st.session_state.screen == 'about':
+        show_about()
+    elif st.session_state.screen == 'leaderboard':
+        show_leaderboard()
+    elif st.session_state.screen == 'welcome':
         show_welcome()
     elif st.session_state.screen == 'add_stocks':
         show_add_stocks()
@@ -1490,3 +1750,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
