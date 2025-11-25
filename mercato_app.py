@@ -860,16 +860,24 @@ def show_about():
     st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 30px; color: #343967;">About Mercato</div>', unsafe_allow_html=True)
     
     st.markdown("""
-        <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5; text-align: center;">
-            <h2 style="color: #c9a961; margin-bottom: 30px;">Our Mission</h2>
-            <p style="font-size: 18px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
-                Mercato makes stock analysis simple and accessible for everyone. 
-                We believe investing shouldn't require a finance degree or expensive tools.
+        <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
+            <h2 style="color: #c9a961; margin-bottom: 20px; text-align: center;">The Story</h2>
+            <p style="font-size: 17px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
+                I'm Benny Besztery, an Entrepreneurship major at the University of Tampa. I built Mercato 
+                because I wanted a simple way to understand the stock market without all the noise and confusion.
+            </p>
+            <p style="font-size: 17px; line-height: 1.8; max-width: 800px; margin: 20px auto 0;">
+                Most platforms make things more complicated than they need to be, so I set out to create 
+                something clearer — one score, real data, and easy insights anyone can understand.
+            </p>
+            <p style="font-size: 17px; line-height: 1.8; max-width: 800px; margin: 20px auto 0;">
+                My goal is to help people make smarter investing decisions with a tool that's simple, clean, 
+                and actually useful.
             </p>
         </div>
         
         <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #c9a961; margin-bottom: 20px; text-align: center;">What We Do</h3>
+            <h3 style="color: #c9a961; margin-bottom: 20px; text-align: center;">What Mercato Does</h3>
             <p style="font-size: 16px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
                 We analyze stocks across five key dimensions—Financial Health, Profitability, Growth, 
                 Momentum, and Stability—giving you a clear, easy-to-understand score out of 100. 
@@ -1750,5 +1758,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
+    
