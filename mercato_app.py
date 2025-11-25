@@ -1582,9 +1582,16 @@ def show_stock_detail():
         st.rerun()
         return
     
-    if st.button("← Back"):
-        st.session_state.screen = 'dashboard'
-        st.rerun()
+    # Top navigation buttons
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        if st.button("← Back to Portfolio", use_container_width=True):
+            st.session_state.screen = 'dashboard'
+            st.rerun()
+    with col3:
+        if st.button("⌂ Main Menu", use_container_width=True):
+            st.session_state.screen = 'menu'
+            st.rerun()
     
     st.markdown(f"""
         <div style="text-align: center; margin-top: 40px;">
@@ -1678,13 +1685,13 @@ def show_stock_detail():
     
     st.markdown('<div class="section-header">Score Breakdown</div>', unsafe_allow_html=True)
     
-    # Score descriptions
+    # Score descriptions - shorter and clearer
     score_descriptions = {
-        'Financial Health': 'Measures the company\'s overall stability and ability to withstand downturns. Looks at cash reserves, debt levels, and ability to pay bills.',
-        'Profitability': 'Evaluates how efficiently the company turns revenue into real earnings. Higher margins mean more money kept from each sale.',
-        'Growth': 'Shows how quickly the company\'s revenue, earnings, and cash flow are expanding over time. Faster growth often means higher potential.',
-        'Momentum': 'Tracks how the stock has been performing recently compared to the market. Positive momentum suggests investor confidence.',
-        'Stability': 'Assesses how steady or volatile the company\'s stock and business performance are over time. Lower volatility means less risk.'
+        'Financial Health': 'Can the company pay its bills? Looks at cash reserves, debt levels, and ability to withstand downturns.',
+        'Profitability': 'How much money does it keep? Higher margins mean more money kept from each sale.',
+        'Growth': 'Is it getting bigger? Shows how quickly revenue, earnings, and cash flow are expanding.',
+        'Momentum': 'Is the stock price trending up? Tracks recent stock performance compared to the market.',
+        'Stability': 'How risky/volatile is it? Lower volatility means less risk and steadier performance.'
     }
     
     subscores = [
@@ -1700,16 +1707,18 @@ def show_stock_detail():
         description = score_descriptions.get(label, '')
         
         st.markdown(f"""
-            <div class="subscore-detail">
-                <div class="subscore-detail-label">{label}</div>
-                <div>
-                    <span class="subscore-detail-number">{score}</span>
-                    <span style="color: #6C757D; font-size: 20px;">/20</span>
+            <div style="background: white; padding: 25px; border-radius: 12px; margin: 20px 0; border: 2px solid #343967;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div style="color: #343967; font-size: 20px; font-weight: 600; font-family: Georgia;">{label}</div>
+                    <div>
+                        <span style="color: #343967; font-size: 36px; font-weight: 200; font-family: Georgia;">{score}</span>
+                        <span style="color: #666; font-size: 18px; font-family: Georgia;">/20</span>
+                    </div>
                 </div>
-                <div class="subscore-bar" style="height: 10px; margin-top: 16px;">
-                    <div class="subscore-fill" style="width: {width_pct}%"></div>
+                <div style="background: #e6e0d5; height: 20px; border-radius: 10px; overflow: hidden; margin: 15px 0;">
+                    <div style="background: #343967; height: 100%; width: {width_pct}%; border-radius: 10px; transition: width 0.8s ease;"></div>
                 </div>
-                <div style="color: #d0c9bc; font-size: 14px; margin-top: 12px; line-height: 1.5;">
+                <div style="color: #343967; font-size: 15px; line-height: 1.6; font-family: Georgia; margin-top: 12px;">
                     {description}
                 </div>
             </div>
