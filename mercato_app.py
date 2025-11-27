@@ -1862,91 +1862,163 @@ def show_main_app():
     # Add stocks section
     st.markdown('<div class="section-header">Add Stocks to Portfolio</div>', unsafe_allow_html=True)
     
-    # Single search bar with autocomplete
-    ticker_input = st.text_input(
+    # Create tabs for image upload vs manual search
+    tab1, tab2 = st.tabs(["📸 Upload Portfolio Image", "🔍 Search Manually"])
+    
+    with tab1:
+        st.markdown("Upload a screenshot of your portfolio and we'll extract the tickers automatically")
+        
+        uploaded_file = st.file_uploader("Choose an image", type=['png', 'jpg', 'jpeg'], key="portfolio_image")
+        
+        if uploaded_file is not None:
+            # Display the image
+            st.image(uploaded_file, caption="Your Portfolio", use_column_width=True)
+            
+            if st.button("Extract Tickers from Image", type="primary", use_container_width=True):
+                with st.spinner("Analyzing image..."):
+                    try:
+                        from PIL import Image
+                        import io
+                        import re
+                        
+                        # Open image
+                        image = Image.open(uploaded_file)
+                        
+                        # For now, show manual input (OCR requires pytesseract which isn't installed)
+                        st.info("Enter the tickers you see in your screenshot:")
+                        manual_input = st.text_area("Tickers (comma or space separated)", 
+                                                   placeholder="AAPL, MSFT, GOOGL, TSLA",
+                                                   height=100,
+                                                   key="manual_tickers")
+                        
+                        if manual_input and st.button("Add These Tickers", type="primary"):
+                            # Parse tickers
+                            tickers = re.findall(r'[A-Z]{1,5}', manual_input.upper())
+                            tickers = list(set(tickers))  # Remove duplicates
+                            
+                            # Validate and add
+                            added_count = 0
+                            invalid_tickers = []
+                            
+                            for ticker in tickers:
+                                if ticker not in st.session_state.portfolio:
+                                    # Quick validation
+                                    try:
+                                        test_stock = yf.Ticker(ticker)
+                                        test_hist = test_stock.history(period="5d")
+                                        if not test_hist.empty:
+                                            st.session_state.portfolio.append(ticker)
+                                            st.session_state.shares[ticker] = 1.0
+                                            added_count += 1
+                                        else:
+                                            invalid_tickers.append(ticker)
+                                    except:
+                                        invalid_tickers.append(ticker)
+                            
+                            if added_count > 0:
+                                if st.session_state.get('authenticated'):
+                                    save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                                st.session_state.needs_calculation = True
+                                st.success(f"✓ Added {added_count} stocks!")
+                                
+                                if invalid_tickers:
+                                    st.warning(f"Could not find: {', '.join(invalid_tickers)}")
+                                
+                                st.rerun()
+                            else:
+                                st.error("No valid tickers found")
+                    
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+    
+    with tab2:
+        st.markdown("Search for stocks by ticker or company name")
+        
+        # Single search bar with autocomplete
+        ticker_input = st.text_input(
         "Search stocks", 
         placeholder="Start typing a ticker or company name (e.g. AAPL, TSLA)...",
         key="stock_search",
         label_visibility="collapsed"
     ).upper().strip()
     
-    # Show autocomplete suggestions as user types
-    if ticker_input and len(ticker_input) >= 1:
-        matches = [t for t in POPULAR_STOCKS if ticker_input in t]
-        
-        if matches:
-            st.markdown('<div style="font-size: 12px; color: #666; margin: 5px 0 10px 0;">Quick select:</div>', unsafe_allow_html=True)
+# Show autocomplete suggestions as user types
+if ticker_input and len(ticker_input) >= 1:
+            matches = [t for t in POPULAR_STOCKS if ticker_input in t]
+    
+            if matches:
+                st.markdown('<div style="font-size: 12px; color: #666; margin: 5px 0 10px 0;">Quick select:</div>', unsafe_allow_html=True)
             
-            # Show matching tickers in compact grid
-            num_matches = min(len(matches), 10)
-            cols_per_row = 5
-            for i in range(0, num_matches, cols_per_row):
-                cols = st.columns(cols_per_row)
-                for j, ticker in enumerate(matches[i:i+cols_per_row]):
-                    with cols[j]:
-                        if st.button(ticker, key=f"auto_{ticker}_{i}", use_container_width=True):
-                            # Directly add the clicked ticker
-                            if ticker not in st.session_state.portfolio:
-                                with st.spinner(f'Adding {ticker}...'):
-                                    try:
-                                        test_stock = yf.Ticker(ticker)
-                                        test_hist = test_stock.history(period="5d")
+                    # Show matching tickers in compact grid
+                    num_matches = min(len(matches), 10)
+                    cols_per_row = 5
+                    for i in range(0, num_matches, cols_per_row):
+                        cols = st.columns(cols_per_row)
+                        for j, ticker in enumerate(matches[i:i+cols_per_row]):
+                            with cols[j]:
+                                if st.button(ticker, key=f"auto_{ticker}_{i}", use_container_width=True):
+                                    # Directly add the clicked ticker
+                                    if ticker not in st.session_state.portfolio:
+                                        with st.spinner(f'Adding {ticker}...'):
+                                            try:
+                                                test_stock = yf.Ticker(ticker)
+                                                test_hist = test_stock.history(period="5d")
                                         
-                                        if not test_hist.empty:
-                                            st.session_state.portfolio.append(ticker)
-                                            st.session_state.shares[ticker] = 1.0  # Default 1 share
+                                                if not test_hist.empty:
+                                                    st.session_state.portfolio.append(ticker)
+                                                    st.session_state.shares[ticker] = 1.0  # Default 1 share
                                             
-                                            if st.session_state.get('authenticated'):
-                                                save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                                                    if st.session_state.get('authenticated'):
+                                                        save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
                                             
-                                            st.session_state.needs_calculation = True
-                                            st.success(f"✓ {ticker} added!")
-                                            st.rerun()
-                                        else:
-                                            st.error(f"❌ Stock '{ticker}' not found")
-                                    except:
-                                        st.error(f"❌ Could not add '{ticker}'")
-                            else:
-                                st.warning(f"{ticker} already in portfolio")
+                                                    st.session_state.needs_calculation = True
+                                                    st.success(f"✓ {ticker} added!")
+                                                    st.rerun()
+                                                else:
+                                                    st.error(f"❌ Stock '{ticker}' not found")
+                                            except:
+                                                st.error(f"❌ Could not add '{ticker}'")
+                                    else:
+                                        st.warning(f"{ticker} already in portfolio")
     
-    # Shares input and Search button
-    col1, col2, col3 = st.columns([3, 1, 1])
-    with col2:
-        shares_input = st.number_input("Shares", min_value=0.001, value=1.0, step=0.1, format="%.3f", label_visibility="collapsed", key="shares_main")
-    with col3:
-        search_clicked = st.button("Add", use_container_width=True, type="primary", key="search_btn")
+            # Shares input and Search button
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col2:
+                shares_input = st.number_input("Shares", min_value=0.001, value=1.0, step=0.1, format="%.3f", label_visibility="collapsed", key="shares_main")
+            with col3:
+                search_clicked = st.button("Add", use_container_width=True, type="primary", key="search_btn")
     
-    # Process manual search button
-    if search_clicked:
-        if ticker_input:
-            mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
+            # Process manual search button
+            if search_clicked:
+                if ticker_input:
+                    mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
             
-            if mapped_ticker in st.session_state.portfolio:
-                st.warning(f"{mapped_ticker} already in portfolio")
-            else:
-                with st.spinner(f'Adding {mapped_ticker}...'):
-                    try:
-                        test_stock = yf.Ticker(mapped_ticker)
-                        test_hist = test_stock.history(period="5d")
+                    if mapped_ticker in st.session_state.portfolio:
+                        st.warning(f"{mapped_ticker} already in portfolio")
+                    else:
+                        with st.spinner(f'Adding {mapped_ticker}...'):
+                            try:
+                                test_stock = yf.Ticker(mapped_ticker)
+                                test_hist = test_stock.history(period="5d")
                         
-                        if test_hist.empty:
-                            st.error(f"❌ Stock '{mapped_ticker}' not found")
-                        else:
-                            # Add to portfolio
-                            st.session_state.portfolio.append(mapped_ticker)
-                            st.session_state.shares[mapped_ticker] = shares_input
+                                if test_hist.empty:
+                                    st.error(f"❌ Stock '{mapped_ticker}' not found")
+                                else:
+                                    # Add to portfolio
+                                    st.session_state.portfolio.append(mapped_ticker)
+                                    st.session_state.shares[mapped_ticker] = shares_input
                             
-                            # Save if logged in
-                            if st.session_state.get('authenticated'):
-                                save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                                    # Save if logged in
+                                    if st.session_state.get('authenticated'):
+                                        save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
                             
-                            st.session_state.needs_calculation = True
-                            st.success(f"✓ {mapped_ticker} added!")
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Could not add '{mapped_ticker}' - stock may not exist")
-        else:
-            st.warning("Please enter a stock ticker")
+                                    st.session_state.needs_calculation = True
+                                    st.success(f"✓ {mapped_ticker} added!")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Could not add '{mapped_ticker}' - stock may not exist")
+                else:
+                    st.warning("Please enter a stock ticker")
     
     # Portfolio display
     if st.session_state.portfolio:
