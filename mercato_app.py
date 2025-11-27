@@ -1443,8 +1443,12 @@ def show_portfolio_history():
         scores = [h[1] for h in history]
         
         # Filter to exact timeframe (in case database returned more)
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
-        filtered_data = [(d, s) for d, s in zip(dates, scores) if d >= cutoff_date]
+        # Make cutoff_date timezone-naive to match dates
+        cutoff_date = datetime.utcnow().replace(tzinfo=None) - timedelta(days=days)
+        
+        # Strip timezone from dates for comparison
+        dates_naive = [d.replace(tzinfo=None) if d.tzinfo else d for d in dates]
+        filtered_data = [(dates[i], scores[i]) for i, d in enumerate(dates_naive) if d >= cutoff_date]
         
         if filtered_data:
             dates = [d for d, s in filtered_data]
@@ -1529,8 +1533,12 @@ def show_stock_score_history(stock):
         overall_scores = [h['score'] for h in history]
         
         # Filter to exact timeframe (in case database returned more)
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
-        filtered_indices = [i for i, d in enumerate(dates) if d >= cutoff_date]
+        # Make cutoff_date timezone-aware to match dates from database
+        cutoff_date = datetime.utcnow().replace(tzinfo=None) - timedelta(days=days)
+        
+        # Strip timezone from dates for comparison
+        dates_naive = [d.replace(tzinfo=None) if d.tzinfo else d for d in dates]
+        filtered_indices = [i for i, d in enumerate(dates_naive) if d >= cutoff_date]
         
         if filtered_indices:
             history = [history[i] for i in filtered_indices]
