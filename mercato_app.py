@@ -1430,8 +1430,8 @@ def show_portfolio_history():
         if not history:
             st.info("No history available yet.")
             
-            # Offer to backfill historical data
-            if st.button("📊 Load 1 Year of Historical Data", type="primary"):
+            # Offer to backfill historical data - NO EMOJI
+            if st.button("Load 1 Year of Historical Data", type="primary"):
                 backfill_historical_scores(user.id, st.session_state.portfolio, st.session_state.shares)
                 st.rerun()
             
@@ -1441,6 +1441,18 @@ def show_portfolio_history():
         # Parse dates and scores
         dates = [datetime.fromisoformat(h[0]) for h in history]
         scores = [h[1] for h in history]
+        
+        # Filter to exact timeframe (in case database returned more)
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        filtered_data = [(d, s) for d, s in zip(dates, scores) if d >= cutoff_date]
+        
+        if filtered_data:
+            dates = [d for d, s in filtered_data]
+            scores = [s for d, s in filtered_data]
+        
+        if not dates:
+            st.info(f"No data available for the last {days} days.")
+            return
         
         # Create chart
         fig = go.Figure()
@@ -1486,7 +1498,7 @@ def show_portfolio_history():
             with col4:
                 st.metric("Low", f"{min(scores):.1f}")
         
-        st.caption(f"📊 Tracking {len(scores)} data points over {days} days")
+        st.caption(f"Tracking {len(scores)} data points over {days} days")
 
 
 @st.dialog("Stock Score History", width="large")
@@ -1515,6 +1527,19 @@ def show_stock_score_history(stock):
         # Parse data
         dates = [datetime.fromisoformat(h['calculated_at']) for h in history]
         overall_scores = [h['score'] for h in history]
+        
+        # Filter to exact timeframe (in case database returned more)
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        filtered_indices = [i for i, d in enumerate(dates) if d >= cutoff_date]
+        
+        if filtered_indices:
+            history = [history[i] for i in filtered_indices]
+            dates = [dates[i] for i in filtered_indices]
+            overall_scores = [overall_scores[i] for i in filtered_indices]
+        
+        if not dates:
+            st.info(f"No data available for the last {days} days.")
+            return
         
         # Create main score chart
         fig = go.Figure()
@@ -1599,7 +1624,7 @@ def show_stock_score_history(stock):
         
         st.plotly_chart(fig2, use_container_width=True)
         
-        st.caption(f"📊 Tracking {len(history)} data points over {days} days")
+        st.caption(f"Tracking {len(history)} data points over {days} days")
 
 
 @st.dialog("Stock Preview")
