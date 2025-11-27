@@ -195,78 +195,168 @@ def get_stock_score_history(user_id, ticker, days=30):
         return []
 
 def backfill_historical_scores(user_id, portfolio, shares):
-    """Backfill scores for past year to give instant historical data"""
+    """Backfill scores for past year using ACTUAL historical data"""
     if not supabase or not user_id:
         return False
     
     try:
-        # Check if user already has historical data
+        # Check how many data points user has
         response = supabase.table("score_history").select("id").eq(
             "user_id", str(user_id)
-        ).limit(1).execute()
+        ).execute()
         
-        # Only backfill if user has no data
-        if response.data and len(response.data) > 0:
-            return False
+        existing_count = len(response.data) if response.data else 0
         
-        st.info("🔄 Building your historical data... This will take a minute.")
+        # If user already has 50+ data points, don't backfill again
+        if existing_count >= 50:
+            st.success(f"You already have {existing_count} historical data points!")
+            return True
+        
+        st.info("Building your historical data from the past year... This will take 1-2 minutes.")
         
         # Calculate scores for past year (sample every 7 days = 52 data points)
         dates_to_backfill = []
-        for days_ago in range(0, 365, 7):
+        for days_ago in range(7, 365, 7):  # Start from 7 days ago (not today)
             dates_to_backfill.append(datetime.utcnow() - timedelta(days=days_ago))
         
         portfolio_scores = []
+        progress_bar = st.progress(0)
+        total_dates = len(dates_to_backfill)
         
-        with st.spinner('Calculating historical scores...'):
-            for date in reversed(dates_to_backfill):  # Oldest first
-                date_scores = []
-                
-                for ticker in portfolio:
-                    try:
-                        # Get stock data
-                        stock_obj = yf.Ticker(ticker)
-                        
-                        # Get historical price near that date
-                        hist = stock_obj.history(start=date - timedelta(days=7), end=date + timedelta(days=1))
-                        if hist.empty:
-                            continue
-                        
-                        # Score the stock (this uses current fundamentals, but historical price/momentum)
-                        score_result = score_stock(ticker)
-                        if score_result:
-                            # Save to database with historical date
-                            data = {
-                                "user_id": str(user_id),
-                                "ticker": ticker,
-                                "score": float(score_result['final_score']),
-                                "financial_health": float(score_result['financial_health']),
-                                "profitability": float(score_result['profitability']),
-                                "growth": float(score_result['growth']),
-                                "momentum": float(score_result['momentum']),
-                                "stability": float(score_result['stability']),
-                                "price": float(score_result['price']),
-                                "calculated_at": date.isoformat()
-                            }
-                            supabase.table("score_history").insert(data).execute()
-                            date_scores.append(score_result)
-                    except:
-                        continue
-                
-                # Calculate portfolio score for this date
-                if date_scores:
-                    portfolio_score = calculate_portfolio_score(date_scores)
-                    portfolio_scores.append({
-                        "user_id": str(user_id),
-                        "portfolio_score": float(portfolio_score),
-                        "calculated_at": date.isoformat()
-                    })
+        status_text = st.empty()
+        
+        for idx, date in enumerate(reversed(dates_to_backfill)):  # Oldest first
+            status_text.text(f"Processing {date.strftime('%b %d, %Y')}... ({idx+1}/{total_dates})")
+            date_scores = []
             
-            # Bulk insert portfolio scores
-            if portfolio_scores:
-                supabase.table("portfolio_score_history").insert(portfolio_scores).execute()
+            for ticker in portfolio:
+                try:
+                    stock_obj = yf.Ticker(ticker)
+                    
+                    # Get historical data around that specific date
+                    hist = stock_obj.history(start=date - timedelta(days=3), end=date + timedelta(days=1))
+                    
+                    if hist.empty:
+                        continue
+                    
+                    # Get the price from that date
+                    historical_price = hist['Close'].iloc[-1] if not hist.empty else None
+                    
+                    if historical_price is None:
+                        continue
+                    
+                    # Calculate momentum using historical prices
+                    hist_30d = stock_obj.history(start=date - timedelta(days=40), end=date)
+                    hist_90d = stock_obj.history(start=date - timedelta(days=100), end=date)
+                    
+                    # Calculate returns
+                    returns_30d = 0
+                    returns_90d = 0
+                    
+                    if len(hist_30d) >= 20:
+                        returns_30d = ((hist_30d['Close'].iloc[-1] - hist_30d['Close'].iloc[0]) / 
+                                      hist_30d['Close'].iloc[0]) * 100
+                    
+                    if len(hist_90d) >= 60:
+                        returns_90d = ((hist_90d['Close'].iloc[-1] - hist_90d['Close'].iloc[0]) / 
+                                      hist_90d['Close'].iloc[0]) * 100
+                    
+                    # Calculate volatility (stability)
+                    volatility = hist_90d['Close'].pct_change().std() * 100 if len(hist_90d) > 1 else 0
+                    
+                    # Get current score template
+                    current_score = score_stock(ticker)
+                    
+                    if not current_score:
+                        continue
+                    
+                    # Recalculate momentum score with historical data
+                    momentum_score = 0
+                    if returns_30d > 15:
+                        momentum_score += 10
+                    elif returns_30d > 5:
+                        momentum_score += 7
+                    elif returns_30d > 0:
+                        momentum_score += 4
+                    
+                    if returns_90d > 30:
+                        momentum_score += 10
+                    elif returns_90d > 10:
+                        momentum_score += 7
+                    elif returns_90d > 0:
+                        momentum_score += 4
+                    
+                    # Recalculate stability with historical volatility
+                    stability_score = 0
+                    if volatility < 1:
+                        stability_score = 20
+                    elif volatility < 2:
+                        stability_score = 16
+                    elif volatility < 3:
+                        stability_score = 12
+                    elif volatility < 4:
+                        stability_score = 8
+                    elif volatility < 5:
+                        stability_score = 4
+                    
+                    # Calculate final score
+                    final_score = (
+                        current_score['financial_health'] + 
+                        current_score['profitability'] + 
+                        current_score['growth'] + 
+                        momentum_score + 
+                        stability_score
+                    )
+                    
+                    # Save to database with historical date
+                    data = {
+                        "user_id": str(user_id),
+                        "ticker": ticker,
+                        "score": float(final_score),
+                        "financial_health": float(current_score['financial_health']),
+                        "profitability": float(current_score['profitability']),
+                        "growth": float(current_score['growth']),
+                        "momentum": float(momentum_score),
+                        "stability": float(stability_score),
+                        "price": float(historical_price),
+                        "calculated_at": date.isoformat()
+                    }
+                    supabase.table("score_history").insert(data).execute()
+                    
+                    # Store for portfolio calculation
+                    score_dict = {
+                        'ticker': ticker,
+                        'final_score': final_score,
+                        'financial_health': current_score['financial_health'],
+                        'profitability': current_score['profitability'],
+                        'growth': current_score['growth'],
+                        'momentum': momentum_score,
+                        'stability': stability_score,
+                        'shares': shares.get(ticker, 1.0)
+                    }
+                    date_scores.append(score_dict)
+                    
+                except Exception as e:
+                    continue
+            
+            # Calculate portfolio score for this date
+            if date_scores:
+                portfolio_score = calculate_portfolio_score(date_scores)
+                portfolio_scores.append({
+                    "user_id": str(user_id),
+                    "portfolio_score": float(portfolio_score),
+                    "calculated_at": date.isoformat()
+                })
+            
+            # Update progress
+            progress_bar.progress((idx + 1) / total_dates)
         
-        st.success("✅ Historical data loaded! You now have 1 year of history.")
+        # Bulk insert portfolio scores
+        if portfolio_scores:
+            supabase.table("portfolio_score_history").insert(portfolio_scores).execute()
+        
+        status_text.empty()
+        st.success(f"Historical data loaded! Created {len(portfolio_scores)} portfolio snapshots.")
         return True
     except Exception as e:
         st.error(f"Could not backfill data: {e}")
@@ -1458,6 +1548,10 @@ def show_portfolio_history():
             st.info(f"No data available for the last {days} days.")
             return
         
+        # Debug info - show date range
+        date_display = [d.replace(tzinfo=None) if hasattr(d, 'tzinfo') and d.tzinfo else d for d in dates]
+        st.caption(f"Loaded: {len(dates)} data points | From: {date_display[0].strftime('%b %d, %Y')} | To: {date_display[-1].strftime('%b %d, %Y')}")
+        
         # Create chart
         fig = go.Figure()
         
@@ -1548,6 +1642,10 @@ def show_stock_score_history(stock):
         if not dates:
             st.info(f"No data available for the last {days} days.")
             return
+        
+        # Debug info - show date range
+        date_display = [d.replace(tzinfo=None) if hasattr(d, 'tzinfo') and d.tzinfo else d for d in dates]
+        st.caption(f"Loaded: {len(dates)} data points | From: {date_display[0].strftime('%b %d, %Y')} | To: {date_display[-1].strftime('%b %d, %Y')}")
         
         # Create main score chart
         fig = go.Figure()
