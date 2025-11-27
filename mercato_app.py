@@ -1,6 +1,7 @@
 """
 Mercato - The Market Made Simple
-Light blue design with Mercato logo
+With User Authentication and Portfolio Persistence
+CONDENSED UI VERSION
 """
 
 import streamlit as st
@@ -8,524 +9,308 @@ import yfinance as yf
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
 import base64
+from supabase import create_client, Client
 
-# Company name to ticker mapping
+# ============ SUPABASE SETUP ============
+# Initialize Supabase - credentials from Streamlit secrets
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
+
+# ============ AUTH FUNCTIONS ============
+def sign_up(email, password):
+    try:
+        response = supabase.auth.sign_up({"email": email, "password": password})
+        return response
+    except Exception as e:
+        return {"error": str(e)}
+
+def sign_in(email, password):
+    try:
+        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        return response
+    except Exception as e:
+        return {"error": str(e)}
+
+def sign_out():
+    try:
+        supabase.auth.sign_out()
+        # Clear session state
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        return True
+    except:
+        return False
+
+def get_user():
+    try:
+        user = supabase.auth.get_user()
+        if user and hasattr(user, 'user') and user.user:
+            return user.user
+        return None
+    except:
+        return None
+
+# ============ DATABASE FUNCTIONS ============
+def save_portfolio_to_db(user_id, ticker, shares=1.0):
+    try:
+        data = {"user_id": str(user_id), "ticker": ticker.upper(), "shares": float(shares)}
+        supabase.table("portfolios").upsert(data).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error saving: {e}")
+        return False
+
+def load_portfolio_from_db(user_id):
+    try:
+        response = supabase.table("portfolios").select("*").eq("user_id", str(user_id)).execute()
+        return response.data if response.data else []
+    except:
+        return []
+
+def remove_from_portfolio_db(user_id, ticker):
+    try:
+        supabase.table("portfolios").delete().eq("user_id", str(user_id)).eq("ticker", ticker).execute()
+        return True
+    except:
+        return False
+
+def save_score_to_history(user_id, ticker, score_data):
+    try:
+        data = {
+            "user_id": str(user_id),
+            "ticker": ticker.upper(),
+            "score": float(score_data['final_score']),
+            "financial_health": float(score_data['financial_health']),
+            "profitability": float(score_data['profitability']),
+            "growth": float(score_data['growth']),
+            "momentum": float(score_data['momentum']),
+            "stability": float(score_data['stability']),
+            "price": float(score_data['price'])
+        }
+        supabase.table("score_history").insert(data).execute()
+        return True
+    except:
+        return False
+
+def get_score_change(user_id, ticker):
+    try:
+        response = supabase.table("score_history").select("score").eq(
+            "user_id", str(user_id)
+        ).eq("ticker", ticker).order("calculated_at", desc=True).limit(2).execute()
+        
+        if response.data and len(response.data) >= 2:
+            return float(response.data[0]['score']) - float(response.data[1]['score'])
+        return None
+    except:
+        return None
+
+# ============ COMPANY TICKER MAP ============
 COMPANY_TICKER_MAP = {
-    'APPLE': 'AAPL',
-    'MICROSOFT': 'MSFT',
-    'GOOGLE': 'GOOGL',
-    'ALPHABET': 'GOOGL',
-    'AMAZON': 'AMZN',
-    'TESLA': 'TSLA',
-    'META': 'META',
-    'FACEBOOK': 'META',
-    'NVIDIA': 'NVDA',
-    'NETFLIX': 'NFLX',
-    'DISNEY': 'DIS',
-    'WALMART': 'WMT',
-    'VISA': 'V',
-    'MASTERCARD': 'MA',
-    'JPMORGAN': 'JPM',
-    'JP MORGAN': 'JPM',
-    'BANK OF AMERICA': 'BAC',
-    'COCA COLA': 'KO',
-    'COCACOLA': 'KO',
-    'COKE': 'KO',
-    'PEPSI': 'PEP',
-    'MCDONALD': 'MCD',
-    'MCDONALDS': 'MCD',
-    'NIKE': 'NKE',
-    'STARBUCKS': 'SBUX',
-    'BOEING': 'BA',
-    'INTEL': 'INTC',
-    'AMD': 'AMD',
-    'CISCO': 'CSCO',
-    'ORACLE': 'ORCL',
-    'IBM': 'IBM',
-    'SALESFORCE': 'CRM',
-    'ADOBE': 'ADBE',
-    'PAYPAL': 'PYPL',
-    'UBER': 'UBER',
-    'LYFT': 'LYFT',
-    'AIRBNB': 'ABNB',
-    'SPOTIFY': 'SPOT',
-    'TWITTER': 'TWTR',
-    'SNAP': 'SNAP',
-    'SNAPCHAT': 'SNAP',
-    'PINTEREST': 'PINS',
-    'ZOOM': 'ZM',
-    'SHOPIFY': 'SHOP',
-    'SQUARE': 'SQ',
-    'BLOCK': 'SQ',
-    'ROBINHOOD': 'HOOD',
-    'COINBASE': 'COIN',
-    'MODERNA': 'MRNA',
-    'PFIZER': 'PFE',
-    'JOHNSON': 'JNJ',
-    'JOHNSON & JOHNSON': 'JNJ',
-    'EXXON': 'XOM',
-    'CHEVRON': 'CVX',
-    'FORD': 'F',
-    'GM': 'GM',
-    'GENERAL MOTORS': 'GM',
-    'GENERAL ELECTRIC': 'GE',
-    'CATERPILLAR': 'CAT',
-    'DEERE': 'DE',
-    'JOHN DEERE': 'DE',
-    'HOME DEPOT': 'HD',
-    'LOWES': 'LOW',
-    'TARGET': 'TGT',
-    'COSTCO': 'COST',
-    'PROCTER': 'PG',
-    'PROCTER & GAMBLE': 'PG',
-    'VERIZON': 'VZ',
-    'AT&T': 'T',
-    'ATT': 'T',
-    'T-MOBILE': 'TMUS',
-    'TMOBILE': 'TMUS',
-    'COMCAST': 'CMCSA',
-    'WELLS FARGO': 'WFC',
-    'CITIGROUP': 'C',
-    'CITI': 'C',
-    'MORGAN STANLEY': 'MS',
-    'GOLDMAN SACHS': 'GS',
-    'AMERICAN EXPRESS': 'AXP',
-    'AMEX': 'AXP',
-    'DELTA': 'DAL',
-    'UNITED': 'UAL',
-    'AMERICAN AIRLINES': 'AAL',
-    'SOUTHWEST': 'LUV',
-    'MARRIOTT': 'MAR',
-    'HILTON': 'HLT',
-    'BOOKING': 'BKNG',
-    'DOORDASH': 'DASH',
-    'CHIPOTLE': 'CMG',
-    'DOMINOS': 'DPZ',
-    'YUM': 'YUM',
-    'MONDELEZ': 'MDLZ'
+    'APPLE': 'AAPL', 'MICROSOFT': 'MSFT', 'GOOGLE': 'GOOGL', 'ALPHABET': 'GOOGL',
+    'AMAZON': 'AMZN', 'TESLA': 'TSLA', 'META': 'META', 'FACEBOOK': 'META',
+    'NVIDIA': 'NVDA', 'NETFLIX': 'NFLX', 'DISNEY': 'DIS', 'WALMART': 'WMT',
+    'VISA': 'V', 'MASTERCARD': 'MA', 'JPMORGAN': 'JPM', 'BANK OF AMERICA': 'BAC',
+    'COCA COLA': 'KO', 'PEPSI': 'PEP', 'NIKE': 'NKE', 'STARBUCKS': 'SBUX',
+    'BOEING': 'BA', 'INTEL': 'INTC', 'AMD': 'AMD', 'ORACLE': 'ORCL',
+    'SALESFORCE': 'CRM', 'ADOBE': 'ADBE', 'UBER': 'UBER', 'AIRBNB': 'ABNB',
+    'SPOTIFY': 'SPOT', 'SNAP': 'SNAP', 'ZOOM': 'ZM', 'SHOPIFY': 'SHOP',
+    'COINBASE': 'COIN', 'PALANTIR': 'PLTR', 'RIVIAN': 'RIVN'
 }
 
-# Load logo as base64
-try:
-    with open('mercato_logo.png', 'rb') as f:
-        LOGO_BASE64 = base64.b64encode(f.read()).decode()
-except:
-    # Fallback SVG if logo file not found
-    LOGO_BASE64 = None
-
 # Page config
-st.set_page_config(
-    page_title="Mercato",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="Mercato", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
-# Custom CSS - Light Blue Mercato Design
+# ============ CONDENSED CSS - TIGHT SPACING ============
 st.markdown("""
     <style>
-    /* Brand Colors */
     :root {
         --beige: #F9F8F6;
         --blue: #343967;
-        --white: #FFFFFF;
-        --gray-light: #F5F5F5;
-        --gray-medium: #E0E0E0;
-        --gray-dark: #666666;
     }
     
-    /* Global Font */
-    * {
-        font-family: Georgia, serif !important;
-    }
+    * { font-family: Georgia, serif !important; }
     
-    /* Hide Streamlit elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stDeployButton {display:none;}
     header {visibility: hidden;}
     
-    /* Main background - White for better contrast */
     .main {
         background: #ffffff;
-        min-height: 100vh;
-        padding: 20px 0;
+        padding: 10px 0;
     }
     
     .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        max-width: 1200px;
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+        max-width: 1000px !important;
     }
     
-    /* Welcome screen */
-    .welcome-container {
-        text-align: center;
-        padding: 100px 20px;
-        max-width: 900px;
-        margin: 0 auto;
-    }
-    
-    .welcome-logo {
-        margin-bottom: 30px;
-    }
+    /* Condensed spacing */
+    .element-container { margin-bottom: 0.5rem !important; }
+    .row-widget { margin-bottom: 0.5rem !important; }
     
     .welcome-title {
-        font-size: 72px;
+        font-size: 48px;
         font-weight: 700;
         color: #343967;
-        margin: 20px 0;
-        letter-spacing: -2px;
+        margin: 10px 0;
+        text-align: center;
     }
     
     .welcome-tagline {
-        font-size: 28px;
+        font-size: 20px;
         color: #343967;
-        margin: 20px 0;
-        font-weight: 400;
-        font-style: italic;
-    }
-    
-    /* Loading screen - BLUE */
-    .loading-screen {
-        background: #343967;
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 9999;
-    }
-    
-    .loading-content {
+        margin: 10px 0;
         text-align: center;
-        color: white;
-    }
-    
-    .loading-logo {
-        margin-bottom: 40px;
-    }
-    
-    .loading-text {
-        font-size: 32px;
-        color: white;
-        margin: 30px 0;
-        font-weight: 500;
-    }
-    
-    .loading-subtext {
-        font-size: 18px;
-        color: #F9F8F6;
         font-style: italic;
     }
     
-    /* Portfolio Health Score - Elegant navy */
     .health-score-container {
         background: #343967;
-        padding: 60px 40px;
-        border-radius: 20px;
+        padding: 30px 25px;
+        border-radius: 16px;
         text-align: center;
-        margin: 40px auto;
-        max-width: 600px;
-        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
-        border: 1px solid rgba(230, 224, 213, 0.2);
-    }
-    
-    .health-score-label {
-        color: #e6e0d5;
-        font-size: 16px;
-        font-weight: 600;
-        letter-spacing: 3px;
-        text-transform: uppercase;
-        margin-bottom: 20px;
+        margin: 15px auto;
+        max-width: 500px;
     }
     
     .health-score-number {
         color: #e6e0d5;
-        font-size: 140px;
+        font-size: 80px;
         font-weight: 200;
-        line-height: 1;
-        margin: 20px 0;
-        font-family: Georgia, serif;
+        margin: 10px 0;
     }
     
     .health-score-subtext {
         color: #d0c9bc;
-        font-size: 18px;
-        margin-top: 10px;
-        font-weight: 400;
+        font-size: 16px;
     }
     
-    /* Insight cards - Navy with gold accent */
     .insight-card {
         background: #343967;
-        padding: 20px 26px;
-        border-radius: 14px;
-        margin: 12px 0;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
-        border: 1px solid rgba(230, 224, 213, 0.15);
-        border-left: 3px solid #e6e0d5;
+        padding: 12px 18px;
+        border-radius: 10px;
+        margin: 8px 0;
     }
     
     .insight-text {
         color: #f5f0e8;
-        font-size: 16px;
-        line-height: 1.6;
-        font-weight: 500;
-        letter-spacing: -0.1px;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        font-size: 14px;
+        line-height: 1.4;
     }
     
-    /* Stock cards - Navy with elegant styling */
     .stock-card {
         background: #343967;
-        padding: 22px 26px;
-        border-radius: 14px;
-        margin: 12px 0;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
-        transition: all 0.3s ease;
-        border: 1px solid rgba(230, 224, 213, 0.15);
+        padding: 15px 20px;
+        border-radius: 12px;
+        margin: 8px 0;
+        transition: all 0.2s ease;
     }
     
     .stock-card:hover {
-        border-color: #e6e0d5;
-        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
-        transform: translateY(-3px);
-    }
-    
-    .stock-header-row {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        margin-bottom: 14px;
-    }
-    
-    .company-logo {
-        width: 44px;
-        height: 44px;
-        border-radius: 10px;
-        object-fit: contain;
-        background: #F5F5F5;
-        padding: 7px;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-    }
-    
-    .company-info {
-        flex: 1;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.15);
     }
     
     .company-name {
-        font-size: 20px;
-        font-weight: 600;
-        color: #e6e0d5;
-        margin-bottom: 3px;
-        line-height: 1.3;
-        letter-spacing: -0.3px;
-    }
-    
-    .stock-ticker {
-        font-size: 13px;
-        font-weight: 600;
-        color: #e6e0d5;
-        letter-spacing: 1.2px;
-        text-transform: uppercase;
-    }
-    
-    .stock-score {
-        font-size: 56px;
-        font-weight: 200;
-        color: #e6e0d5;
-        text-align: right;
-    }
-    
-    .stock-price {
-        font-size: 20px;
-        color: #e6e0d5;
-        margin: 12px 0 6px 0;
-        font-weight: 500;
-    }
-    
-    .price-change-positive {
-        color: #10b981;
-        font-weight: 600;
-        font-size: 16px;
-    }
-    
-    .price-change-negative {
-        color: #ef4444;
-        font-weight: 600;
-        font-size: 16px;
-    }
-    
-    /* Sub-score bars - Beige labels on navy cards */
-    .subscore-container {
-        margin: 12px 0;
-    }
-    
-    .subscore-label {
-        color: #343967;
-        font-size: 12px;
-        margin-bottom: 6px;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        font-weight: 600;
-    }
-    
-    .subscore-bar {
-        background: #e6e0d5;
-        height: 8px;
-        border-radius: 4px;
-        overflow: hidden;
-    }
-    
-    .subscore-fill {
-        background: #343967;
-        height: 100%;
-        border-radius: 4px;
-        transition: width 0.8s ease;
-    }
-    
-    /* Buttons - Navy with gold hover */
-    .stButton > button {
-        background: linear-gradient(135deg, #343967 0%, #2a2f52 100%);
-        color: white;
-        border: 1px solid rgba(201, 169, 97, 0.3);
-        padding: 16px 32px;
-        font-size: 16px;
-        font-weight: 600;
-        border-radius: 12px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        width: 100%;
-        letter-spacing: 0.5px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    
-    .stButton > button:hover {
-        background: linear-gradient(135deg, #2a2f52 0%, #343967 100%);
-        border-color: #e6e0d5;
-        box-shadow: 0 6px 20px rgba(201, 169, 97, 0.3);
-        transform: translateY(-2px);
-    }
-    
-    /* Section headers - Navy */
-    .section-header {
-        font-size: 22px;
-        font-weight: 700;
-        color: #343967;
-        margin: 35px 0 18px 0;
-        padding-bottom: 10px;
-        border-bottom: 2.5px solid #343967;
-        letter-spacing: -0.5px;
-    }
-    
-    /* Detail view - Elegant navy */
-    .detail-score-big {
-        text-align: center;
-        background: linear-gradient(135deg, #343967 0%, #2a2f52 100%);
-        padding: 60px;
-        border-radius: 20px;
-        margin: 30px auto;
-        max-width: 600px;
-        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
-        border: 1px solid rgba(230, 224, 213, 0.2);
-    }
-    
-    .detail-score-number {
-        font-size: 120px;
-        font-weight: 200;
-        margin: 20px 0;
-        color: #e6e0d5;
-    }
-    
-    .subscore-detail {
-        background: #343967;
-        padding: 28px;
-        border-radius: 12px;
-        margin: 20px 0;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-        border: 1px solid rgba(230, 224, 213, 0.2);
-    }
-    
-    .subscore-detail-label {
         font-size: 18px;
         font-weight: 600;
         color: #e6e0d5;
-        margin-bottom: 16px;
-        letter-spacing: -0.3px;
+        margin-bottom: 2px;
     }
     
-    .subscore-detail-number {
-        font-size: 48px;
+    .stock-ticker {
+        font-size: 12px;
+        color: #e6e0d5;
+        letter-spacing: 1px;
+    }
+    
+    .stock-score {
+        font-size: 42px;
         font-weight: 200;
         color: #e6e0d5;
-        display: inline-block;
-        margin-right: 8px;
     }
     
-    /* Header logo */
-    .header-container {
-        background: linear-gradient(135deg, #343967 0%, #2a2f52 100%);
-        padding: 24px 32px;
+    .stock-price {
+        font-size: 16px;
+        color: #e6e0d5;
+        margin: 6px 0;
+    }
+    
+    .price-change-positive { color: #10b981; font-weight: 600; }
+    .price-change-negative { color: #ef4444; font-weight: 600; }
+    
+    .subscore-container { margin: 8px 0; }
+    .subscore-label { color: #343967; font-size: 11px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .subscore-bar { background: #e6e0d5; height: 6px; border-radius: 3px; overflow: hidden; }
+    .subscore-fill { background: #343967; height: 100%; border-radius: 3px; }
+    
+    .stButton > button {
+        background: #343967;
+        color: white;
+        padding: 10px 20px;
+        font-size: 14px;
+        border-radius: 10px;
+        border: none;
+        width: 100%;
+    }
+    
+    .stButton > button:hover {
+        background: #2a2f52;
+        transform: translateY(-1px);
+    }
+    
+    .section-header {
+        font-size: 18px;
+        font-weight: 700;
+        color: #343967;
+        margin: 15px 0 10px 0;
+        padding-bottom: 6px;
+        border-bottom: 2px solid #343967;
+    }
+    
+    .stTextInput > div > div > input {
+        border-radius: 10px;
+        border: 2px solid #d9d0c1;
+        padding: 10px;
+    }
+    
+    .stNumberInput > div > div > input {
+        border-radius: 10px;
+        border: 2px solid #d9d0c1;
+        padding: 10px;
+    }
+    
+    /* Auth screens */
+    .auth-container {
+        max-width: 400px;
+        margin: 50px auto;
+        padding: 30px;
+        background: white;
         border-radius: 16px;
-        margin-bottom: 40px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-        border: 1px solid rgba(230, 224, 213, 0.2);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
     
-    .mercato-logo-text {
+    .auth-title {
         font-size: 32px;
         font-weight: 700;
-        color: #e6e0d5;
-        letter-spacing: -1px;
-    }
-    
-    .mercato-logo-img {
-        width: 44px;
-        height: 44px;
-        border-radius: 8px;
-    }
-    
-    /* Input fields - Elegant white */
-    .stTextInput > div > div > input {
-        border-radius: 12px;
-        border: 2px solid #d9d0c1;
-        padding: 16px;
-        font-size: 16px;
-        background: white;
-        color: #343967 !important;
-        transition: all 0.2s ease;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-    }
-    
-    .stTextInput > div > div > input:focus {
-        border-color: #e6e0d5;
-        box-shadow: 0 4px 12px rgba(201, 169, 97, 0.2);
-        color: #343967 !important;
-    }
-    
-    .stTextInput > div > div > input::placeholder {
-        color: #999999 !important;
-    }
-    
-    /* Progress bar */
-    .stProgress > div > div > div {
-        background: linear-gradient(90deg, #343967 0%, #e6e0d5 100%);
+        color: #343967;
+        text-align: center;
+        margin-bottom: 20px;
     }
     </style>
 """, unsafe_allow_html=True)
 
-
-# ============ SCORING FUNCTIONS (Same as before) ============
-
+# ============ STOCK SCORING FUNCTIONS ============
 def get_stock_data(ticker):
-    """Get financial data for a stock"""
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
@@ -535,12 +320,10 @@ def get_stock_data(ticker):
             return None
         
         company_name = info.get('longName', info.get('shortName', ticker))
-        logo_url = f"https://logo.clearbit.com/{info.get('website', '').replace('https://', '').replace('http://', '').split('/')[0]}"
         
         return {
             'ticker': ticker,
             'company_name': company_name,
-            'logo_url': logo_url,
             'sector': info.get('sector', 'Unknown'),
             'price': hist['Close'].iloc[-1],
             'prev_close': hist['Close'].iloc[-2] if len(hist) >= 2 else hist['Close'].iloc[-1],
@@ -559,7 +342,6 @@ def get_stock_data(ticker):
             'hist': hist
         }
     except Exception as e:
-        st.error(f"Error fetching {ticker}: {e}")
         return None
 
 
@@ -595,39 +377,39 @@ def calculate_financial_health(data):
 def calculate_profitability(data):
     scores = []
     pm = data['profit_margin']
-    if pm > 0.30:  # Exceptional - very few companies
+    if pm > 0.30:
         pm_score = 1.0
-    elif pm > 0.20:  # Great
+    elif pm > 0.20:
         pm_score = 0.75
-    elif pm > 0.12:  # Good
+    elif pm > 0.12:
         pm_score = 0.55
-    elif pm > 0.06:  # Average
+    elif pm > 0.06:
         pm_score = 0.35
     else:
         pm_score = max(0.15, pm * 3)
     scores.append(pm_score)
     
     om = data['operating_margin']
-    if om > 0.35:  # Exceptional
+    if om > 0.35:
         om_score = 1.0
-    elif om > 0.25:  # Great
+    elif om > 0.25:
         om_score = 0.75
-    elif om > 0.15:  # Good
+    elif om > 0.15:
         om_score = 0.55
-    elif om > 0.08:  # Average
+    elif om > 0.08:
         om_score = 0.35
     else:
         om_score = max(0.15, om * 2.5)
     scores.append(om_score)
     
     roe = data['roe']
-    if roe > 0.25:  # Exceptional
+    if roe > 0.25:
         roe_score = 1.0
-    elif roe > 0.18:  # Great
+    elif roe > 0.18:
         roe_score = 0.75
-    elif roe > 0.12:  # Good
+    elif roe > 0.12:
         roe_score = 0.55
-    elif roe > 0.06:  # Average
+    elif roe > 0.06:
         roe_score = 0.35
     else:
         roe_score = max(0.15, roe * 2.5)
@@ -678,7 +460,6 @@ def calculate_momentum(data):
         spy = yf.Ticker('SPY')
         spy_hist = spy.history(period='1y')
         
-        # 1-month momentum - more balanced
         if len(hist) >= 21:
             stock_1m = (hist['Close'].iloc[-1] / hist['Close'].iloc[-21] - 1)
             spy_1m = (spy_hist['Close'].iloc[-1] / spy_hist['Close'].iloc[-21] - 1)
@@ -696,7 +477,6 @@ def calculate_momentum(data):
                 score_1m = 0.4
             scores.append(score_1m)
         
-        # 3-month momentum - more balanced
         if len(hist) >= 63:
             stock_3m = (hist['Close'].iloc[-1] / hist['Close'].iloc[-63] - 1)
             spy_3m = (spy_hist['Close'].iloc[-1] / spy_hist['Close'].iloc[-63] - 1)
@@ -722,7 +502,6 @@ def calculate_momentum(data):
 def calculate_stability(data):
     scores = []
     
-    # Beta scoring - more generous
     beta = data['beta']
     if beta < 0.7:
         beta_score = 1.0
@@ -736,7 +515,6 @@ def calculate_stability(data):
         beta_score = 0.4
     scores.append(beta_score)
     
-    # 52-week range volatility - more balanced
     high = data['fifty_two_week_high']
     low = data['fifty_two_week_low']
     price = data['price']
@@ -755,7 +533,6 @@ def calculate_stability(data):
             vol_score = 0.4
         scores.append(vol_score)
     
-    # Drawdown - more forgiving
     try:
         hist = data['hist']
         if hist is not None and not hist.empty:
@@ -798,7 +575,6 @@ def score_stock(ticker):
     return {
         'ticker': ticker,
         'company_name': data['company_name'],
-        'logo_url': data['logo_url'],
         'sector': data['sector'],
         'price': data['price'],
         'price_change': price_change,
@@ -856,1100 +632,270 @@ def generate_insights(stock_scores):
     elif avg_momentum < 8:
         insights.append(f"Weak momentum detected")
     
-    positive_movers = sum(1 for s in stock_scores if s['price_change'] > 0)
-    if positive_movers > len(stock_scores) / 2:
-        insights.append(f"{positive_movers} of {len(stock_scores)} stocks gained today")
-    
     return insights
 
-
-# ============ SCREEN FUNCTIONS ============
-
-def show_menu():
-    """Main menu screen"""
-    logo_html = f'<img src="data:image/png;base64,{LOGO_BASE64}" style="width: 100px; height: 100px; border-radius: 16px;"/>' if LOGO_BASE64 else '<svg width=100 height=100 viewBox="0 0 150 150" fill="none"><path d="M75 20L50 60V130H75V130H100V60L75 20Z" fill="#343967"/><path d="M35 40L20 60V130H35V130H50V60L35 40Z" fill="#343967"/><path d="M115 40L100 60V130H115V130H130V60L115 40Z" fill="#343967"/></svg>'
+# ============ AUTHENTICATION SCREENS ============
+def show_auth():
+    """Login/Signup screen"""
+    st.markdown('<div class="auth-container">', unsafe_allow_html=True)
+    st.markdown('<div class="auth-title">Mercato</div>', unsafe_allow_html=True)
     
-    st.markdown(f"""
-        <div class="welcome-container">
-            <div class="welcome-logo">
-                {logo_html}
-            </div>
-            <div class="welcome-title">Mercato</div>
-            <div class="welcome-tagline">The market made simple</div>
-        </div>
-    """, unsafe_allow_html=True)
+    tab1, tab2 = st.tabs(["Login", "Sign Up"])
     
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("My Portfolio", use_container_width=True):
-            if st.session_state.portfolio:
-                st.session_state.screen = 'calculating'
+    with tab1:
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Password", type="password", key="login_password")
+        
+        if st.button("Login", use_container_width=True):
+            if email and password:
+                with st.spinner("Logging in..."):
+                    result = sign_in(email, password)
+                    if hasattr(result, 'user') and result.user:
+                        st.session_state.user = result.user
+                        st.session_state.authenticated = True
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials")
             else:
-                st.session_state.screen = 'welcome'
-            st.rerun()
+                st.error("Please enter email and password")
+    
+    with tab2:
+        email = st.text_input("Email", key="signup_email")
+        password = st.text_input("Password", type="password", key="signup_password")
+        password2 = st.text_input("Confirm Password", type="password", key="signup_password2")
         
-        if st.button("How to Use", use_container_width=True):
-            st.session_state.screen = 'how_to_use'
-            st.rerun()
+        if st.button("Sign Up", use_container_width=True):
+            if email and password and password2:
+                if password != password2:
+                    st.error("Passwords don't match")
+                elif len(password) < 6:
+                    st.error("Password must be at least 6 characters")
+                else:
+                    with st.spinner("Creating account..."):
+                        result = sign_up(email, password)
+                        if hasattr(result, 'user') and result.user:
+                            st.success("Account created! Please login.")
+                        else:
+                            error_msg = result.get('error', 'Sign up failed')
+                            st.error(f"Error: {error_msg}")
+            else:
+                st.error("Please fill in all fields")
     
-    with col2:
-        if st.button("About Us", use_container_width=True):
-            st.session_state.screen = 'about'
-            st.rerun()
-
-
-def show_how_to_use():
-    """How to use instructions"""
-    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 30px; color: #343967;">How to Use Mercato</div>', unsafe_allow_html=True)
-    
-    st.markdown("""
-<div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-    <h3 style="color: #e6e0d5; margin-bottom: 20px;">Getting Started</h3>
-    <p style="font-size: 16px; line-height: 1.8;">
-        1. <b>Add Stocks:</b> Click "My Portfolio" from the main menu, then add stock tickers (like AAPL, TSLA, etc.)<br><br>
-        2. <b>Enter Shares (Optional):</b> If you want to track your money, enter how many shares you own<br><br>
-        3. <b>View Scores:</b> See health scores (0-100) for each stock across 5 categories<br><br>
-        4. <b>Track Performance:</b> Watch daily gains/losses if you entered share counts
-    </p>
-</div>
-
-<div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-    <h3 style="color: #e6e0d5; margin-bottom: 20px;">Understanding Scores</h3>
-    <p style="font-size: 16px; line-height: 1.8;">
-        Each stock gets scored in <b>5 categories</b> (0-20 points each):<br><br>
-        • <b>Financial Health:</b> Can the company pay its bills?<br>
-        • <b>Profitability:</b> How much money does it keep?<br>
-        • <b>Growth:</b> Is it getting bigger?<br>
-        • <b>Momentum:</b> Is the stock price trending up?<br>
-        • <b>Stability:</b> How risky/volatile is it?<br><br>
-        Add them up = Final score out of 100
-    </p>
-</div>
-
-<div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-    <h3 style="color: #e6e0d5; margin-bottom: 20px;">Features</h3>
-    <p style="font-size: 16px; line-height: 1.8;">
-        • <b>Daily Insights:</b> Get analysis of your portfolio performance<br>
-        • <b>Charts:</b> View price charts (line or candlestick)<br>
-        • <b>Position Tracking:</b> See exactly how much money you made/lost today<br>
-        • <b>Score Breakdown:</b> Detailed view of each stock's health metrics
-    </p>
-</div>
-    """, unsafe_allow_html=True)
-    
-    if st.button("← Back to Menu", use_container_width=True):
-        st.session_state.screen = 'menu'
-        st.rerun()
-
-
-def show_about():
-    """About us page"""
-    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; margin-bottom: 30px; color: #343967;">About Mercato</div>', unsafe_allow_html=True)
-    
-    st.markdown("""
-        <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h2 style="color: #e6e0d5; margin-bottom: 20px; text-align: center;">The Story</h2>
-            <p style="font-size: 17px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
-                I'm Benny Besztery, an Entrepreneurship major at the University of Tampa. I built Mercato 
-                because I wanted a simple way to understand the stock market without all the noise and confusion.
-            </p>
-            <p style="font-size: 17px; line-height: 1.8; max-width: 800px; margin: 20px auto 0;">
-                Most platforms make things more complicated than they need to be, so I set out to create 
-                something clearer — one score, real data, and easy insights anyone can understand.
-            </p>
-            <p style="font-size: 17px; line-height: 1.8; max-width: 800px; margin: 20px auto 0;">
-                My goal is to help people make smarter investing decisions with a tool that's simple, clean, 
-                and actually useful.
-            </p>
-        </div>
-        
-        <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #e6e0d5; margin-bottom: 20px; text-align: center;">What Mercato Does</h3>
-            <p style="font-size: 16px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
-                We analyze stocks across five key dimensions—Financial Health, Profitability, Growth, 
-                Momentum, and Stability—giving you a clear, easy-to-understand score out of 100. 
-                No confusing jargon, just straightforward insights.
-            </p>
-        </div>
-        
-        <div style="background: #343967; padding: 40px; border-radius: 16px; margin: 20px 0; color: #e6e0d5;">
-            <h3 style="color: #e6e0d5; margin-bottom: 20px; text-align: center;">Why Mercato?</h3>
-            <p style="font-size: 16px; line-height: 1.8; max-width: 800px; margin: 0 auto;">
-                • <b>Simple Scores:</b> Understand any stock in seconds<br>
-                • <b>Real Data:</b> Powered by live market information<br>
-                • <b>Track Your Money:</b> See exactly what you're gaining or losing<br>
-                • <b>Clean Design:</b> No clutter, just what matters<br>
-                • <b>Free to Use:</b> Powerful analysis for everyone
-            </p>
-        </div>
-        
-        <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px 0; color: #d0c9bc; text-align: center; font-size: 14px;">
-            <p><b>Disclaimer:</b> Mercato provides educational analysis only. This is not financial advice. 
-            Always do your own research and consult with a financial advisor before making investment decisions.</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    if st.button("← Back to Menu", use_container_width=True):
-        st.session_state.screen = 'menu'
-        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def show_welcome():
-    """Welcome screen"""
-    logo_html = f'<img src="data:image/png;base64,{LOGO_BASE64}" style="width: 120px; height: 120px; border-radius: 16px;"/>' if LOGO_BASE64 else '<svg width=120 height=120 viewBox="0 0 150 150" fill="none"><path d="M75 20L50 60V130H75V130H100V60L75 20Z" fill="#343967"/><path d="M35 40L20 60V130H35V130H50V60L35 40Z" fill="#343967"/><path d="M115 40L100 60V130H115V130H130V60L115 40Z" fill="#343967"/></svg>'
+    """Welcome screen after login"""
+    user = st.session_state.get('user')
     
-    st.markdown(f"""
-        <div class="welcome-container">
-            <div class="welcome-logo">
-                {logo_html}
-            </div>
-            <div class="welcome-title">Mercato</div>
-            <div class="welcome-tagline">The market made simple</div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("Get Started", use_container_width=True):
-            st.session_state.screen = 'add_stocks'
-            st.rerun()
-
-
-def show_add_stocks():
-    """Add stocks screen"""
-    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 48px; margin-bottom: 30px; color: #343967;">Add Your Stocks</div>', unsafe_allow_html=True)
-    
-    # Initialize shares dict if not exists
-    if 'shares' not in st.session_state:
-        st.session_state.shares = {}
-    
-    # Action buttons at top
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Add Stock", use_container_width=True, key="add_stock_top"):
-            st.session_state.show_add_form = not st.session_state.get('show_add_form', False)
-    with col2:
-        if st.session_state.portfolio:
-            if st.button("Continue to Dashboard", use_container_width=True):
+        st.markdown('<div class="welcome-title">Welcome to Mercato</div>', unsafe_allow_html=True)
+        st.markdown('<div class="welcome-tagline">The market made simple</div>', unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        st.markdown('<div class="section-header">Add Your Stocks</div>', unsafe_allow_html=True)
+        ticker_input = st.text_input("Stock ticker or company name", key="welcome_ticker").upper()
+        shares_input = st.number_input("Number of shares", min_value=0.001, value=1.0, step=0.1, format="%.3f")
+        
+        if st.button("Add Stock", use_container_width=True):
+            if ticker_input:
+                # Check if it's a company name
+                mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
+                
+                with st.spinner('Adding stock...'):
+                    try:
+                        test_stock = yf.Ticker(mapped_ticker)
+                        test_hist = test_stock.history(period="5d")
+                        
+                        if test_hist.empty:
+                            st.error("Stock not found")
+                        else:
+                            if save_portfolio_to_db(user.id, mapped_ticker, shares_input):
+                                st.success(f"{mapped_ticker} added!")
+                                st.rerun()
+                    except:
+                        st.error("Stock not found")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Show current portfolio
+        portfolio_items = load_portfolio_from_db(user.id)
+        if portfolio_items:
+            st.markdown('<div class="section-header">Your Stocks</div>', unsafe_allow_html=True)
+            for item in portfolio_items:
+                col_a, col_b = st.columns([3, 1])
+                with col_a:
+                    st.markdown(f'<div class="company-name">{item["ticker"]} - {item["shares"]} shares</div>', unsafe_allow_html=True)
+                with col_b:
+                    if st.button("Remove", key=f"remove_{item['ticker']}"):
+                        remove_from_portfolio_db(user.id, item['ticker'])
+                        st.rerun()
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Analyze Portfolio", use_container_width=True):
                 st.session_state.screen = 'calculating'
                 st.rerun()
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Show add form if toggled
-    if st.session_state.get('show_add_form', False):
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.markdown('<div class="section-header">Add New Stock</div>', unsafe_allow_html=True)
-            ticker_input = st.text_input("Stock ticker or company name (e.g., AAPL or Apple)", key="ticker_input")
-            shares_input = st.number_input("Number of shares (optional)", min_value=0.0, value=0.0, step=0.1, format="%.3f", key="shares_input", help="Leave as 0 if you don't want to track shares")
-            
-            if st.button("Add to Portfolio", use_container_width=True):
-                if ticker_input:
-                    # Try to convert company name to ticker if needed
-                    search_term = ticker_input.strip().upper()
-                    
-                    # Check if it's a company name we know
-                    if search_term in COMPANY_TICKER_MAP:
-                        final_ticker = COMPANY_TICKER_MAP[search_term]
-                    else:
-                        final_ticker = search_term
-                    
-                    if final_ticker in st.session_state.portfolio:
-                        st.warning(f"{final_ticker} already in portfolio")
-                    else:
-                        # Validate ticker
-                        with st.spinner('Validating...'):
-                            try:
-                                test_stock = yf.Ticker(final_ticker)
-                                test_hist = test_stock.history(period="5d")
-                                
-                                # Check if we got valid price data
-                                if test_hist.empty or len(test_hist) == 0:
-                                    st.error(f"Stock not available. Try using the ticker symbol (e.g., AAPL)")
-                                else:
-                                    # Stock is valid - add to portfolio with shares
-                                    st.session_state.portfolio.append(final_ticker)
-                                    if shares_input > 0:
-                                        st.session_state.shares[final_ticker] = shares_input
-                                    else:
-                                        st.session_state.shares[final_ticker] = None
-                                    st.success(f"{final_ticker} added successfully")
-                                    st.session_state.show_add_form = False
-                                    st.rerun()
-                            except Exception as e:
-                                st.error(f"Stock not available. Try using the ticker symbol (e.g., AAPL)")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Show portfolio list
-    if st.session_state.portfolio:
-        st.markdown('<div class="section-header">Your Portfolio</div>', unsafe_allow_html=True)
-        
-        for ticker in st.session_state.portfolio:
-            shares = st.session_state.shares.get(ticker)
-            
-            # Get stock data for daily change
-            try:
-                stock = yf.Ticker(ticker)
-                hist = stock.history(period="5d")
-                if not hist.empty and len(hist) >= 2:
-                    current_price = hist['Close'].iloc[-1]
-                    prev_price = hist['Close'].iloc[-2]
-                    price_change = current_price - prev_price
-                    price_change_pct = (price_change / prev_price) * 100
-                    
-                    # Calculate total gain/loss if shares provided
-                    if shares and shares > 0:
-                        total_change = price_change * shares
-                        change_color = "#10b981" if total_change >= 0 else "#ef4444"
-                        sign = "+" if total_change >= 0 else ""
-                        shares_display = f"{shares} shares • {sign}${total_change:.2f} today"
-                    else:
-                        change_color = "#10b981" if price_change >= 0 else "#ef4444"
-                        sign = "+" if price_change >= 0 else ""
-                        shares_display = f"${current_price:.2f} • {sign}${price_change:.2f} ({sign}{price_change_pct:.2f}%)"
-                else:
-                    shares_display = f"{shares} shares" if shares else "Tracking"
-                    change_color = "#666666"
-            except:
-                shares_display = f"{shares} shares" if shares else "Tracking"
-                change_color = "#666666"
-            
-            col_a, col_b = st.columns([4, 1])
-            with col_a:
-                st.markdown(f'''
-                    <div style="background: #343967; padding: 16px 20px; border-radius: 12px; margin: 8px 0;">
-                        <div style="color: #e6e0d5; font-size: 20px; font-weight: 600; font-family: Georgia;">{ticker}</div>
-                        <div style="color: {change_color}; font-size: 14px; font-family: Georgia; margin-top: 4px;">{shares_display}</div>
-                    </div>
-                ''', unsafe_allow_html=True)
-            with col_b:
-                if st.button("Remove", key=f"remove_{ticker}", use_container_width=True):
-                    st.session_state.portfolio.remove(ticker)
-                    if ticker in st.session_state.shares:
-                        del st.session_state.shares[ticker]
-                    st.rerun()
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-
 
 
 def show_calculating():
-    """Loading screen - Blue with logo"""
-    logo_html = f'<img src="data:image/png;base64,{LOGO_BASE64}" style="width: 100px; height: 100px; border-radius: 16px;"/>' if LOGO_BASE64 else '<svg width=100 height=100 viewBox="0 0 150 150" fill="none"><path d="M75 20L50 60V130H75V130H100V60L75 20Z" fill="#F9F8F6"/><path d="M35 40L20 60V130H35V130H50V60L35 40Z" fill="#F9F8F6"/><path d="M115 40L100 60V130H115V130H130V60L115 40Z" fill="#F9F8F6"/></svg>'
+    """Calculating screen"""
+    user = st.session_state.get('user')
     
-    st.markdown(f"""
-        <div class="loading-content">
-            <div class="loading-logo">
-                {logo_html}
+    st.markdown("""
+        <div style="background: #343967; min-height: 60vh; display: flex; align-items: center; justify-content: center; border-radius: 20px;">
+            <div style="text-align: center; color: white;">
+                <div style="font-size: 32px; margin: 20px 0;">Analyzing Portfolio...</div>
+                <div style="font-size: 16px; color: #F9F8F6; font-style: italic;">Calculating scores</div>
             </div>
-            <div class="loading-text">Mercato</div>
-            <div class="loading-subtext">The market made simple</div>
         </div>
     """, unsafe_allow_html=True)
     
-    progress_bar = st.progress(0)
+    portfolio_items = load_portfolio_from_db(user.id)
     stock_scores = []
-    total = len(st.session_state.portfolio)
     
-    for i, ticker in enumerate(st.session_state.portfolio):
-        progress_bar.progress((i + 1) / total)
-        score = score_stock(ticker)
-        if score:
-            stock_scores.append(score)
+    progress_bar = st.progress(0)
+    for i, item in enumerate(portfolio_items):
+        ticker = item['ticker']
+        score_result = score_stock(ticker)
+        if score_result:
+            score_result['shares'] = item['shares']
+            stock_scores.append(score_result)
+            # Save score to history
+            save_score_to_history(user.id, ticker, score_result)
+        progress_bar.progress((i + 1) / len(portfolio_items))
     
     st.session_state.stock_scores = stock_scores
     st.session_state.screen = 'dashboard'
     st.rerun()
 
 
-def generate_portfolio_html_report(stock_scores, shares_dict):
-    """Generate HTML report of portfolio for download"""
-    portfolio_score = calculate_portfolio_score(stock_scores)
-    current_date = datetime.now().strftime('%B %d, %Y at %I:%M %p')
-    
-    # Sort stocks by score
-    sorted_stocks = sorted(stock_scores, key=lambda x: x['final_score'], reverse=True)
-    
-    # Generate stock rows
-    stock_rows = ""
-    for stock in sorted_stocks:
-        shares = shares_dict.get(stock['ticker'])
-        shares_text = f" ({shares} shares)" if shares and shares > 0 else ""
-        price_change_sign = '+' if stock['price_change'] >= 0 else ''
-        price_change_color = '#10b981' if stock['price_change'] >= 0 else '#ef4444'
-        
-        stock_rows += f"""
-        <div style="background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #343967;">
-            <h3 style="color: #343967; margin: 0 0 15px 0;">{stock['ticker']} - {stock['company_name']}{shares_text}</h3>
-            
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
-                <tr style="background: #e6e0d5;">
-                    <td style="padding: 10px; border: 1px solid #343967; font-weight: bold;">Current Price</td>
-                    <td style="padding: 10px; border: 1px solid #343967;">${stock['price']:.2f}</td>
-                </tr>
-                <tr style="background: #e6e0d5;">
-                    <td style="padding: 10px; border: 1px solid #343967; font-weight: bold;">Daily Change</td>
-                    <td style="padding: 10px; border: 1px solid #343967; color: {price_change_color};">{price_change_sign}{stock['price_change']:.2f}%</td>
-                </tr>
-                <tr style="background: #e6e0d5;">
-                    <td style="padding: 10px; border: 1px solid #343967; font-weight: bold;">Overall Score</td>
-                    <td style="padding: 10px; border: 1px solid #343967; font-weight: bold; font-size: 18px;">{stock['final_score']}/100</td>
-                </tr>
-            </table>
-            
-            <h4 style="color: #343967; margin: 20px 0 10px 0;">Score Breakdown</h4>
-            <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Financial Health</td>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['financial_health']}/20</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Profitability</td>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['profitability']}/20</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Growth</td>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['growth']}/20</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Momentum</td>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['momentum']}/20</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">Stability</td>
-                    <td style="padding: 8px; border: 1px solid #343967; background: #ffffff;">{stock['stability']}/20</td>
-                </tr>
-            </table>
-        </div>
-        """
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Mercato Portfolio Report</title>
-        <style>
-            body {{
-                font-family: Georgia, serif;
-                max-width: 800px;
-                margin: 40px auto;
-                padding: 20px;
-                background: #ffffff;
-                color: #343967;
-            }}
-            h1 {{
-                text-align: center;
-                color: #343967;
-                font-size: 36px;
-                margin-bottom: 10px;
-            }}
-            .subtitle {{
-                text-align: center;
-                color: #666;
-                margin-bottom: 40px;
-            }}
-            .summary {{
-                background: #343967;
-                color: #e6e0d5;
-                padding: 30px;
-                border-radius: 12px;
-                margin-bottom: 40px;
-            }}
-            .summary h2 {{
-                margin-top: 0;
-                color: #e6e0d5;
-            }}
-            .summary-item {{
-                display: flex;
-                justify-content: space-between;
-                padding: 10px 0;
-                border-bottom: 1px solid rgba(230, 224, 213, 0.3);
-            }}
-            .summary-item:last-child {{
-                border-bottom: none;
-            }}
-            @media print {{
-                body {{
-                    margin: 0;
-                    padding: 20px;
-                }}
-            }}
-        </style>
-    </head>
-    <body>
-        <h1>Mercato Portfolio Report</h1>
-        <p class="subtitle">Generated: {current_date}</p>
-        
-        <div class="summary">
-            <h2>Portfolio Overview</h2>
-            <div class="summary-item">
-                <span>Portfolio Health Score</span>
-                <span style="font-size: 24px; font-weight: bold;">{portfolio_score}/100</span>
-            </div>
-            <div class="summary-item">
-                <span>Total Stocks</span>
-                <span>{len(stock_scores)}</span>
-            </div>
-            <div class="summary-item">
-                <span>Report Date</span>
-                <span>{datetime.now().strftime('%B %d, %Y')}</span>
-            </div>
-        </div>
-        
-        <h2 style="color: #343967; margin-top: 40px;">Stock Breakdown</h2>
-        {stock_rows}
-        
-        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 2px solid #343967; color: #666;">
-            <p>Report generated by Mercato - The market made simple</p>
-        </div>
-    </body>
-    </html>
-    """
-    
-    return html_content
-
-
 def show_dashboard():
     """Main dashboard"""
-    if not st.session_state.stock_scores:
-        st.session_state.screen = 'add_stocks'
-        st.rerun()
+    user = st.session_state.get('user')
+    stock_scores = st.session_state.get('stock_scores', [])
+    
+    # Header with logout
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown('<div class="welcome-title" style="text-align: left; font-size: 32px;">Portfolio Dashboard</div>', unsafe_allow_html=True)
+    with col2:
+        if st.button("Logout", use_container_width=True):
+            sign_out()
+            st.rerun()
+    
+    if not stock_scores:
+        st.warning("No stocks analyzed yet")
+        if st.button("Add Stocks"):
+            st.session_state.screen = 'welcome'
+            st.rerun()
         return
     
-    # Header with Mercato logo
-    logo_html = f'<img src="data:image/png;base64,{LOGO_BASE64}" class="mercato-logo-img"/>' if LOGO_BASE64 else '<svg width=44 height=44 viewBox="0 0 150 150" fill="none"><path d="M75 20L50 60V130H75V130H100V60L75 20Z" fill="#343967"/><path d="M35 40L20 60V130H35V130H50V60L35 40Z" fill="#343967"/><path d="M115 40L100 60V130H115V130H130V60L115 40Z" fill="#343967"/></svg>'
-    
+    # Portfolio Health Score
+    portfolio_score = calculate_portfolio_score(stock_scores)
     st.markdown(f"""
-        <div class="header-container">
-            <div style="display: flex; align-items: center; gap: 16px;">
-                {logo_html}
-                <span class="mercato-logo-text">Mercato</span>
-            </div>
+        <div class="health-score-container">
+            <div class="health-score-number">{portfolio_score}</div>
+            <div class="health-score-subtext">Score: {portfolio_score} / 100</div>
         </div>
     """, unsafe_allow_html=True)
     
-    # Action buttons at top
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        if st.button("← Menu", use_container_width=True):
-            st.session_state.screen = 'menu'
-            st.rerun()
-    with col2:
-        if st.button("Add More Stocks", use_container_width=True):
-            st.session_state.screen = 'manage'
-            st.rerun()
-    with col3:
-        if st.button("Refresh Scores", use_container_width=True):
-            st.session_state.screen = 'calculating'
-            st.rerun()
-    with col4:
-        html_report = generate_portfolio_html_report(st.session_state.stock_scores, st.session_state.shares)
-        st.download_button(
-            label="Export Report",
-            data=html_report,
-            file_name=f"mercato_portfolio_{datetime.now().strftime('%Y%m%d')}.html",
-            mime="text/html",
-            use_container_width=True
-        )
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Calculate portfolio value and daily change
-    total_value = 0
-    total_daily_change = 0
-    stocks_with_shares = 0
-    
-    for stock in st.session_state.stock_scores:
-        ticker = stock['ticker']
-        shares = st.session_state.shares.get(ticker)
-        
-        if shares and shares > 0:
-            stocks_with_shares += 1
-            current_price = stock['price']
-            price_change = stock['price_change'] / 100 * current_price  # Convert % to $
-            
-            stock_value = current_price * shares
-            stock_daily_change = price_change * shares
-            
-            total_value += stock_value
-            total_daily_change += stock_daily_change
-    
-    # Portfolio Health Score - FIRST
-    portfolio_score = calculate_portfolio_score(st.session_state.stock_scores)
-    
-    # Create gauge chart
-    fig_gauge = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = portfolio_score,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': "Portfolio Health Score", 'font': {'size': 24, 'color': '#e6e0d5', 'family': 'Georgia'}},
-        number = {'font': {'size': 60, 'color': '#e6e0d5', 'family': 'Georgia'}},
-        gauge = {
-            'axis': {'range': [None, 100], 'tickwidth': 2, 'tickcolor': "#e6e0d5", 'tickfont': {'color': '#e6e0d5', 'family': 'Georgia'}},
-            'bar': {'color': "#e6e0d5", 'thickness': 0.75},
-            'bgcolor': "#2a2f52",
-            'borderwidth': 2,
-            'bordercolor': "#e6e0d5",
-            'steps': [
-                {'range': [0, 40], 'color': '#5a4a42'},
-                {'range': [40, 70], 'color': '#6b5d52'},
-                {'range': [70, 100], 'color': '#8b7d6b'}
-            ],
-            'threshold': {
-                'line': {'color': "#e6e0d5", 'width': 4},
-                'thickness': 0.75,
-                'value': portfolio_score
-            }
-        }
-    ))
-    
-    fig_gauge.update_layout(
-        paper_bgcolor = "#343967",
-        plot_bgcolor = "#343967",
-        font = {'color': "#e6e0d5", 'family': 'Georgia'},
-        height = 350,
-        margin = dict(l=20, r=20, t=80, b=20)
-    )
-    
-    # Display gauge in a navy container
-    st.markdown("""
-        <div class="health-score-container" style="padding: 40px 20px;">
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.plotly_chart(fig_gauge, use_container_width=True)
-    
-    st.markdown(f"""
-        <div style="text-align: center; color: #343967; font-size: 18px; margin-top: -20px; margin-bottom: 40px;">
-            <b>Score: {portfolio_score} / 100</b>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Show portfolio value summary AFTER score - if user has shares entered
-    if stocks_with_shares > 0:
-        daily_change_pct = (total_daily_change / (total_value - total_daily_change)) * 100 if (total_value - total_daily_change) != 0 else 0
-        change_color = "#10b981" if total_daily_change >= 0 else "#ef4444"
-        sign = "+" if total_daily_change >= 0 else ""
-        
-        st.markdown(f"""
-            <div style="background: #343967; padding: 30px; border-radius: 16px; margin-bottom: 30px; text-align: center; border: 1px solid rgba(230, 224, 213, 0.2);">
-                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">
-                    Portfolio Value
-                </div>
-                <div style="color: #e6e0d5; font-size: 48px; font-weight: 200; font-family: Georgia; margin: 10px 0;">
-                    ${total_value:,.2f}
-                </div>
-                <div style="color: {change_color}; font-size: 24px; font-family: Georgia; margin-top: 10px;">
-                    {sign}${abs(total_daily_change):,.2f} ({sign}{daily_change_pct:.2f}%)
-                </div>
-                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; margin-top: 8px;">
-                    Today
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    # Insights
+    # Daily Insights
     st.markdown('<div class="section-header">Daily Insights</div>', unsafe_allow_html=True)
-    
-    # Show total portfolio gain/loss if user has shares
-    total_portfolio_change = 0
-    stocks_with_shares_count = 0
-    
-    for stock in st.session_state.stock_scores:
-        ticker = stock['ticker']
-        shares = st.session_state.shares.get(ticker)
-        if shares and shares > 0:
-            stocks_with_shares_count += 1
-            price_change_dollars = stock["price_change"] / 100 * stock["price"]
-            daily_change = price_change_dollars * shares
-            total_portfolio_change += daily_change
-    
-    if stocks_with_shares_count > 0:
-        change_color = "#10b981" if total_portfolio_change >= 0 else "#ef4444"
-        sign = "+" if total_portfolio_change >= 0 else ""
-        
-        st.markdown(f"""
-            <div style="background: #343967; padding: 25px; border-radius: 14px; margin: 15px 0; border-left: 4px solid {change_color};">
-                <div style="color: #e6e0d5; font-size: 18px; font-weight: 600; margin-bottom: 8px;">
-                    Total Portfolio Performance Today
-                </div>
-                <div style="color: {change_color}; font-size: 32px; font-weight: 500;">
-                    {sign}${abs(total_portfolio_change):,.2f}
-                </div>
-                <div style="color: #d0c9bc; font-size: 14px; margin-top: 8px;">
-                    Across {stocks_with_shares_count} position{'s' if stocks_with_shares_count > 1 else ''}
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    insights = generate_insights(st.session_state.stock_scores)
+    insights = generate_insights(stock_scores)
     for insight in insights:
         st.markdown(f'<div class="insight-card"><div class="insight-text">{insight}</div></div>', unsafe_allow_html=True)
     
-    # Stock List
+    # Stock Cards
     st.markdown('<div class="section-header">Your Stocks</div>', unsafe_allow_html=True)
-    
-    sorted_stocks = sorted(st.session_state.stock_scores, key=lambda x: x['final_score'], reverse=True)
-    
-    for stock in sorted_stocks:
-        col1, col2 = st.columns([4, 1])
+    for stock in stock_scores:
+        price_change_class = "price-change-positive" if stock['price_change'] >= 0 else "price-change-negative"
+        price_change_symbol = "+" if stock['price_change'] >= 0 else ""
         
-        with col1:
-            st.markdown(f"""
-                <div class="stock-card">
-                    <div class="stock-header-row">
-                        <img src="{stock['logo_url']}" class="company-logo" onerror="this.style.display='none'"/>
-                        <div class="company-info">
-                            <div class="company-name">{stock['company_name']}</div>
-                            <div class="stock-ticker">{stock['ticker']}</div>
-                        </div>
-                    </div>
-                    <div class="stock-price">${stock["price"]:.2f}</div>
-            """, unsafe_allow_html=True)
-            
-            change_class = "price-change-positive" if stock["price_change"] >= 0 else "price-change-negative"
-            sign = "+" if stock["price_change"] >= 0 else ""
-            st.markdown(f'<div class="{change_class}">{sign}{stock["price_change"]:.2f}%</div>', unsafe_allow_html=True)
-            
-            # Show daily gain/loss if shares are tracked
-            ticker = stock['ticker']
-            shares = st.session_state.shares.get(ticker)
-            if shares and shares > 0:
-                price_change_dollars = stock["price_change"] / 100 * stock["price"]
-                daily_change = price_change_dollars * shares
-                change_color = "#10b981" if daily_change >= 0 else "#ef4444"
-                sign_dollar = "+" if daily_change >= 0 else ""
-                
-                # Round shares for clean display
-                shares_display = round(shares, 2) if shares % 1 != 0 else int(shares)
-                
-                st.markdown(f"""
-                    <div style="color: {change_color}; font-size: 16px; margin-top: 8px; font-weight: 600;">
-                        {shares_display} shares • {sign_dollar}${abs(daily_change):.2f} today
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            # Sub-scores
-            cols = st.columns(5)
-            subscores = [
-                ('Financial', stock['financial_health']),
-                ('Profit', stock['profitability']),
-                ('Growth', stock['growth']),
-                ('Momentum', stock['momentum']),
-                ('Stability', stock['stability'])
-            ]
-            
-            for col, (label, score) in zip(cols, subscores):
-                with col:
-                    st.markdown(f"""
-                        <div class="subscore-container">
-                            <div class="subscore-label">{label}</div>
-                            <div class="subscore-bar">
-                                <div class="subscore-fill" style="width: {(score/20)*100}%"></div>
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown(f'<div class="stock-score" style="padding-top: 20px;">{stock["final_score"]}</div>', unsafe_allow_html=True)
-            if st.button("View Details", key=f"view_{stock['ticker']}", use_container_width=True):
-                st.session_state.selected_stock = stock['ticker']
-                st.session_state.screen = 'stock_detail'
-                st.rerun()
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-
-
-def show_stock_detail():
-    """Stock detail screen"""
-    if not st.session_state.selected_stock:
-        st.session_state.screen = 'dashboard'
-        st.rerun()
-        return
-    
-    stock = next((s for s in st.session_state.stock_scores if s['ticker'] == st.session_state.selected_stock), None)
-    
-    if not stock:
-        st.session_state.screen = 'dashboard'
-        st.rerun()
-        return
-    
-    # Top navigation buttons
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col1:
-        if st.button("← Back to Portfolio", use_container_width=True):
-            st.session_state.screen = 'dashboard'
-            st.rerun()
-    with col3:
-        if st.button("⌂ Main Menu", use_container_width=True):
-            st.session_state.screen = 'menu'
-            st.rerun()
-    
-    st.markdown(f"""
-        <div style="text-align: center; margin-top: 40px;">
-            <img src="{stock['logo_url']}" style="width: 80px; height: 80px; border-radius: 16px; margin-bottom: 20px; background: white; padding: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" onerror="this.style.display='none'"/>
-            <div class="welcome-title" style="font-size: 42px; margin-top: 10px;">{stock['company_name']}</div>
-            <div class="welcome-tagline" style="font-size: 20px;">{stock['ticker']} • {stock['sector']}</div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Show current price and daily change
-    price_change_dollars = stock["price_change"] / 100 * stock["price"]
-    change_color = "#10b981" if stock["price_change"] >= 0 else "#ef4444"
-    sign = "+" if stock["price_change"] >= 0 else ""
-    
-    # Get shares if available
-    ticker = stock['ticker']
-    shares = st.session_state.shares.get(ticker)
-    
-    # Always show shares input field
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown('<div style="background: white; padding: 24px; border-radius: 12px; border: 1px solid #343967; margin: 20px 0;">', unsafe_allow_html=True)
-        st.markdown('<div style="color: #343967; font-size: 16px; font-weight: 600; font-family: Georgia; margin-bottom: 12px;">Track Your Position</div>', unsafe_allow_html=True)
-        
-        current_shares = float(shares) if shares and shares > 0 else 0.0
-        new_shares = st.number_input("Number of shares", min_value=0.0, value=current_shares, step=0.1, format="%.3f", key=f"shares_{ticker}", help="Enter 0 to stop tracking position")
-        
-        if st.button("Update Position", use_container_width=True, key=f"update_pos_{ticker}"):
-            if new_shares > 0:
-                st.session_state.shares[ticker] = new_shares
-            else:
-                st.session_state.shares[ticker] = None
-            st.rerun()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Show position value/price based on whether shares are tracked
-    if shares and shares > 0:
-        # Show position value and gain/loss
-        position_value = stock["price"] * shares
-        daily_change = price_change_dollars * shares
-        
-        # Round shares for display
-        shares_display = round(shares, 2) if shares % 1 != 0 else int(shares)
+        # Check for score change
+        score_change = get_score_change(user.id, stock['ticker'])
+        score_change_text = ""
+        if score_change and score_change != 0:
+            symbol = "↑" if score_change > 0 else "↓"
+            score_change_text = f'<span style="font-size: 14px; color: #e6e0d5;"> {symbol}{abs(score_change):.1f}</span>'
         
         st.markdown(f"""
-            <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px auto; max-width: 600px; text-align: center; border: 1px solid rgba(230, 224, 213, 0.2);">
-                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">
-                    Your Position
-                </div>
-                <div style="color: #e6e0d5; font-size: 42px; font-weight: 200; font-family: Georgia; margin: 10px 0;">
-                    ${position_value:,.2f}
-                </div>
-                <div style="color: #d0c9bc; font-size: 16px; font-family: Georgia; margin-bottom: 20px;">
-                    {shares_display} shares at ${stock["price"]:.2f}
-                </div>
-                <div style="color: {change_color}; font-size: 28px; font-family: Georgia; margin-top: 10px;">
-                    {sign}${abs(daily_change):,.2f}
-                </div>
-                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; margin-top: 8px;">
-                    Today ({sign}{stock["price_change"]:.2f}%)
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    else:
-        # Just show price info
-        st.markdown(f"""
-            <div style="background: #343967; padding: 30px; border-radius: 16px; margin: 20px auto; max-width: 600px; text-align: center; border: 1px solid rgba(230, 224, 213, 0.2);">
-                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">
-                    Current Price
-                </div>
-                <div style="color: #e6e0d5; font-size: 42px; font-weight: 200; font-family: Georgia; margin: 10px 0;">
-                    ${stock["price"]:.2f}
-                </div>
-                <div style="color: {change_color}; font-size: 24px; font-family: Georgia; margin-top: 10px;">
-                    {sign}${abs(price_change_dollars):.2f} ({sign}{stock["price_change"]:.2f}%)
-                </div>
-                <div style="color: #d0c9bc; font-size: 14px; font-family: Georgia; margin-top: 8px;">
-                    Today
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown(f"""
-        <div class="detail-score-big">
-            <div class="health-score-label">Stock Health Score</div>
-            <div class="detail-score-number">{stock["final_score"]}</div>
-            <div class="health-score-subtext">out of 100</div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="section-header">Score Breakdown</div>', unsafe_allow_html=True)
-    
-    # Score descriptions - shorter and clearer
-    score_descriptions = {
-        'Financial Health': 'Can the company pay its bills? Looks at cash reserves, debt levels, and ability to withstand downturns.',
-        'Profitability': 'How much money does it keep? Higher margins mean more money kept from each sale.',
-        'Growth': 'Is it getting bigger? Shows how quickly revenue, earnings, and cash flow are expanding.',
-        'Momentum': 'Is the stock price trending up? Tracks recent stock performance compared to the market.',
-        'Stability': 'How risky/volatile is it? Lower volatility means less risk and steadier performance.'
-    }
-    
-    subscores = [
-        ('Financial Health', stock['financial_health']),
-        ('Profitability', stock['profitability']),
-        ('Growth', stock['growth']),
-        ('Momentum', stock['momentum']),
-        ('Stability', stock['stability'])
-    ]
-    
-    for label, score in subscores:
-        width_pct = (score/20)*100
-        description = score_descriptions.get(label, '')
-        
-        st.markdown(f"""
-            <div style="background: white; padding: 25px; border-radius: 12px; margin: 20px 0; border: 2px solid #343967;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <div style="color: #343967; font-size: 20px; font-weight: 600; font-family: Georgia;">{label}</div>
+            <div class="stock-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                     <div>
-                        <span style="color: #343967; font-size: 36px; font-weight: 200; font-family: Georgia;">{score}</span>
-                        <span style="color: #666; font-size: 18px; font-family: Georgia;">/20</span>
+                        <div class="company-name">{stock['company_name']}</div>
+                        <div class="stock-ticker">{stock['ticker']} - {stock['shares']} shares</div>
                     </div>
+                    <div class="stock-score">{stock['final_score']}{score_change_text}</div>
                 </div>
-                <div style="background: #e6e0d5; height: 20px; border-radius: 10px; overflow: hidden; margin: 15px 0;">
-                    <div style="background: #343967; height: 100%; width: {width_pct}%; border-radius: 10px; transition: width 0.8s ease;"></div>
-                </div>
-                <div style="color: #343967; font-size: 15px; line-height: 1.6; font-family: Georgia; margin-top: 12px;">
-                    {description}
+                <div class="stock-price">${stock['price']:.2f} <span class="{price_change_class}">{price_change_symbol}{stock['price_change']:.2f}%</span></div>
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px;">
+                    <div class="subscore-container">
+                        <div class="subscore-label">Financial</div>
+                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['financial_health']/20*100}%"></div></div>
+                    </div>
+                    <div class="subscore-container">
+                        <div class="subscore-label">Profit</div>
+                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['profitability']/20*100}%"></div></div>
+                    </div>
+                    <div class="subscore-container">
+                        <div class="subscore-label">Growth</div>
+                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['growth']/20*100}%"></div></div>
+                    </div>
+                    <div class="subscore-container">
+                        <div class="subscore-label">Momentum</div>
+                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['momentum']/20*100}%"></div></div>
+                    </div>
+                    <div class="subscore-container">
+                        <div class="subscore-label">Stability</div>
+                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['stability']/20*100}%"></div></div>
+                    </div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="section-header">Price Chart</div>', unsafe_allow_html=True)
-    
-    # Chart view toggle
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        if st.button("Line View", use_container_width=True, key="line_view"):
-            st.session_state.chart_view = 'line'
-    with col2:
-        if st.button("Candle View", use_container_width=True, key="candle_view"):
-            st.session_state.chart_view = 'candle'
-    
-    # Initialize chart view and timeframe if not set
-    if 'chart_view' not in st.session_state:
-        st.session_state.chart_view = 'line'
-    if 'chart_timeframe' not in st.session_state:
-        st.session_state.chart_timeframe = '1 Year'
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Timeframe selector
-    timeframes = ["1 Day", "1 Week", "1 Month", "3 Months", "6 Months", "1 Year"]
-    default_index = timeframes.index(st.session_state.chart_timeframe)
-    
-    timeframe = st.radio("", timeframes, horizontal=True, key="timeframe", index=default_index)
-    
-    # Update stored timeframe
-    if timeframe != st.session_state.chart_timeframe:
-        st.session_state.chart_timeframe = timeframe
-    
-    periods = {"1 Day": "1d", "1 Week": "5d", "1 Month": "1mo", "3 Months": "3mo", "6 Months": "6mo", "1 Year": "1y"}
-    intervals = {"1 Day": "5m", "1 Week": "15m", "1 Month": "1h", "3 Months": "1d", "6 Months": "1d", "1 Year": "1d"}
-    
-    ticker_obj = yf.Ticker(stock['ticker'])
-    hist = ticker_obj.history(period=periods[timeframe], interval=intervals[timeframe])
-    
-    if not hist.empty:
-        fig = go.Figure()
-        
-        if st.session_state.chart_view == 'line':
-            # Simple line chart
-            fig.add_trace(go.Scatter(
-                x=hist.index,
-                y=hist['Close'],
-                mode='lines',
-                name='Price',
-                line=dict(color='#343967', width=3),
-                fill='tozeroy',
-                fillcolor='rgba(52, 57, 103, 0.1)',
-                hovertemplate='<b>%{x|%B %d, %I:%M %p}</b><br>Price: $%{y:.2f}<extra></extra>'
-            ))
-            
-            chart_type = "Line Chart"
-        else:
-            # Candlestick chart
-            fig.add_trace(go.Candlestick(
-                x=hist.index,
-                open=hist['Open'],
-                high=hist['High'],
-                low=hist['Low'],
-                close=hist['Close'],
-                name='Price',
-                increasing_line_color='#10b981',
-                decreasing_line_color='#ef4444',
-                increasing_fillcolor='#10b981',
-                decreasing_fillcolor='#ef4444',
-                increasing_line_width=2,
-                decreasing_line_width=2,
-                hovertemplate='<b>%{x|%B %d, %I:%M %p}</b><br><br>' +
-                             'Open: $%{open:.2f}<br>' +
-                             'High: $%{high:.2f}<br>' +
-                             'Low: $%{low:.2f}<br>' +
-                             'Close: $%{close:.2f}<br>' +
-                             '<extra></extra>'
-            ))
-            
-            chart_type = "Candlestick Chart"
-        
-        # Add 20-day moving average only for longer timeframes
-        if timeframe in ["1 Month", "3 Months", "6 Months", "1 Year"] and len(hist) >= 20:
-            ma20 = hist['Close'].rolling(window=20).mean()
-            fig.add_trace(go.Scatter(
-                x=hist.index,
-                y=ma20,
-                mode='lines',
-                name='20-Day Average',
-                line=dict(color='#e6e0d5', width=2.5),
-                hovertemplate='<b>%{x|%B %d}</b><br>Average: $%{y:.2f}<extra></extra>'
-            ))
-        
-        # Clean layout - minimal clutter
-        fig.update_layout(
-            height=480,
-            margin=dict(l=65, r=40, t=20, b=60),
-            plot_bgcolor='white',
-            paper_bgcolor='#e6e0d5',
-            hovermode='x unified',
-            showlegend=False,
-            xaxis_rangeslider_visible=False,
-            font=dict(family='Georgia', color='#343967', size=14)
-        )
-        
-        # Date format based on timeframe
-        if timeframe == "1 Day":
-            tickformat = '%I:%M %p'
-            dtick = 3600000  # 1 hour in milliseconds
-        elif timeframe == "1 Week":
-            tickformat = '%b %d<br>%I:%M %p'
-            dtick = None
-        else:
-            tickformat = '%b %d<br>%Y'
-            dtick = None
-        
-        # Minimal x-axis
-        fig.update_xaxes(
-            showgrid=True,
-            gridcolor='rgba(52, 57, 103, 0.05)',
-            showline=True,
-            linecolor='#343967',
-            linewidth=1.5,
-            tickformat=tickformat,
-            tickfont=dict(size=11, family='Georgia', color='#343967'),
-            dtick=dtick
-        )
-        
-        # Minimal y-axis
-        fig.update_yaxes(
-            showgrid=True,
-            gridcolor='rgba(52, 57, 103, 0.05)',
-            showline=True,
-            linecolor='#343967',
-            linewidth=1.5,
-            tickprefix='$',
-            tickfont=dict(size=12, family='Georgia', color='#343967')
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-
-
-def show_manage():
-    """Manage portfolio"""
-    st.markdown('<div class="welcome-title" style="text-align: center; font-size: 42px; color: #343967;">Manage Portfolio</div>', unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Add More Stocks", use_container_width=True):
+            st.session_state.screen = 'welcome'
+            st.rerun()
     with col2:
-        # Initialize shares dict if not exists
-        if 'shares' not in st.session_state:
-            st.session_state.shares = {}
-            
-        st.markdown('<div class="section-header">Add Stocks</div>', unsafe_allow_html=True)
-        ticker_input = st.text_input("Enter ticker", key="manage_ticker").upper()
-        shares_input = st.number_input("Number of shares", min_value=0.001, value=1.0, step=0.1, format="%.3f", key="manage_shares")
-        
-        if st.button("Add Stock", key="add_manage", use_container_width=True):
-            if ticker_input:
-                if ticker_input in st.session_state.portfolio:
-                    st.warning(f"{ticker_input} already in portfolio")
-                else:
-                    # Validate ticker first
-                    with st.spinner('Validating...'):
-                        try:
-                            test_stock = yf.Ticker(ticker_input)
-                            test_hist = test_stock.history(period="5d")
-                            
-                            # Check if we got valid price data
-                            if test_hist.empty or len(test_hist) == 0:
-                                st.error(f"Stock not available")
-                            else:
-                                # Stock is valid - add to portfolio with shares
-                                st.session_state.portfolio.append(ticker_input)
-                                st.session_state.shares[ticker_input] = shares_input
-                                st.success(f"{ticker_input} added successfully")
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"Stock not available")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        st.markdown('<div class="section-header">Current Stocks</div>', unsafe_allow_html=True)
-        
-        for ticker in st.session_state.portfolio:
-            shares = st.session_state.shares.get(ticker, 1.0)
-            col_a, col_b = st.columns([3, 1])
-            with col_a:
-                st.markdown(f'<div class="company-name" style="color: #343967;">{ticker} - {shares} shares</div>', unsafe_allow_html=True)
-            with col_b:
-                if st.button("Remove", key=f"remove_manage_{ticker}"):
-                    st.session_state.portfolio.remove(ticker)
-                    st.session_state.stock_scores = [s for s in st.session_state.stock_scores if s['ticker'] != ticker]
-                    st.rerun()
-        
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        
-        if st.button("← Back to Dashboard", use_container_width=True):
-            st.session_state.screen = 'dashboard'
+        if st.button("Refresh Scores", use_container_width=True):
+            st.session_state.screen = 'calculating'
             st.rerun()
 
 
+# ============ MAIN APP ============
 def main():
+    # Initialize session state
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+    if 'user' not in st.session_state:
+        st.session_state.user = None
     if 'screen' not in st.session_state:
-        st.session_state.screen = 'menu'
-    if 'portfolio' not in st.session_state:
-        st.session_state.portfolio = []
+        st.session_state.screen = 'welcome'
     if 'stock_scores' not in st.session_state:
         st.session_state.stock_scores = []
-    if 'selected_stock' not in st.session_state:
-        st.session_state.selected_stock = None
     
-    if st.session_state.screen == 'menu':
-        show_menu()
-    elif st.session_state.screen == 'how_to_use':
-        show_how_to_use()
-    elif st.session_state.screen == 'about':
-        show_about()
-    elif st.session_state.screen == 'welcome':
+    # Check if user is authenticated
+    if not st.session_state.authenticated:
+        user = get_user()
+        if user:
+            st.session_state.user = user
+            st.session_state.authenticated = True
+        else:
+            show_auth()
+            return
+    
+    # Show appropriate screen
+    if st.session_state.screen == 'welcome':
         show_welcome()
-    elif st.session_state.screen == 'add_stocks':
-        show_add_stocks()
     elif st.session_state.screen == 'calculating':
         show_calculating()
     elif st.session_state.screen == 'dashboard':
         show_dashboard()
-    elif st.session_state.screen == 'stock_detail':
-        show_stock_detail()
-    elif st.session_state.screen == 'manage':
-        show_manage()
 
 
 if __name__ == "__main__":
