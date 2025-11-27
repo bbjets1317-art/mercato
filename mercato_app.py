@@ -1615,56 +1615,61 @@ def show_main_app():
                 price_change_class = "price-change-positive" if stock['price_change'] >= 0 else "price-change-negative"
                 price_change_symbol = "+" if stock['price_change'] >= 0 else ""
                 
-                # Score change if logged in
-                score_change_text = ""
+                # Score change if logged in (simple text, no HTML inside)
+                score_change_display = ""
                 if st.session_state.get('authenticated'):
                     score_change = get_score_change(st.session_state.user.id, stock['ticker'])
                     if score_change and score_change != 0:
                         symbol = "↑" if score_change > 0 else "↓"
-                        score_change_text = f'<span style="font-size: 14px; color: #e6e0d5;"> {symbol}{abs(score_change):.1f}</span>'
+                        score_change_display = f" {symbol}{abs(score_change):.1f}"
                 
-                # Logo
-                logo_html = ""
+                # Company logo (keep it simple)
+                logo_display = ""
                 if stock.get('logo_url'):
-                    logo_html = f'<img src="{stock["logo_url"]}" class="company-logo" onerror="this.style.display=&apos;none&apos;">'
+                    logo_display = f'<img src="{stock["logo_url"]}" class="company-logo" onerror="this.style.display=\'none\'" />'
+                
+                # ETF badge (simple HTML, no emoji)
+                etf_display = ""
+                if stock.get('is_etf'):
+                    etf_display = '<span style="background: #10b981; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 600;">ETF</span>'
                 
                 col_a, col_b = st.columns([4, 1])
                 
                 with col_a:
-                    # Use Streamlit native components instead of HTML
-                    with st.container():
-                        # Company name and score row
-                        name_col, score_col = st.columns([3, 1])
-                        with name_col:
-                            etf_badge = " 🏦ETF" if stock.get('is_etf') else ""
-                            st.markdown(f"**{stock['company_name']}**{etf_badge}")
-                            st.caption(f"{stock['ticker']} - {stock['shares']} shares")
-                        with score_col:
-                            score_change_emoji = ""
-                            if st.session_state.get('authenticated'):
-                                score_change = get_score_change(st.session_state.user.id, stock['ticker'])
-                                if score_change and score_change != 0:
-                                    score_change_emoji = f" {'↑' if score_change > 0 else '↓'}{abs(score_change):.1f}"
-                            st.markdown(f"# {stock['final_score']}{score_change_emoji}")
-                        
-                        # Price
-                        price_emoji = "🟢" if stock['price_change'] >= 0 else "🔴"
-                        st.markdown(f"{price_emoji} ${stock['price']:.2f} ({stock['price_change']:+.2f}%)")
-                        
-                        # Subscores
-                        st.markdown("---")
-                        cols = st.columns(5)
-                        subscores = [
-                            ("Financial", stock['financial_health']),
-                            ("Profit", stock['profitability']),
-                            ("Growth", stock['growth']),
-                            ("Momentum", stock['momentum']),
-                            ("Stability", stock['stability'])
-                        ]
-                        for col, (label, score) in zip(cols, subscores):
-                            with col:
-                                st.metric(label, f"{score}/20", delta=None, label_visibility="visible")
-                                st.progress(score / 20)
+                    # Build HTML string carefully
+                    html_parts = []
+                    html_parts.append('<div class="stock-card">')
+                    html_parts.append('  <div style="display: flex; align-items: flex-start; margin-bottom: 12px;">')
+                    
+                    # Logo (if exists)
+                    if logo_display:
+                        html_parts.append(f'    {logo_display}')
+                    
+                    html_parts.append('    <div style="flex: 1;">')
+                    html_parts.append('      <div style="display: flex; justify-content: space-between; align-items: center;">')
+                    html_parts.append('        <div>')
+                    html_parts.append(f'          <div class="company-name">{stock["company_name"]}{etf_display}</div>')
+                    html_parts.append(f'          <div class="stock-ticker">{stock["ticker"]} - {stock["shares"]} shares</div>')
+                    html_parts.append('        </div>')
+                    html_parts.append(f'        <div class="stock-score">{stock["final_score"]}{score_change_display}</div>')
+                    html_parts.append('      </div>')
+                    html_parts.append('    </div>')
+                    html_parts.append('  </div>')
+                    html_parts.append(f'  <div class="stock-price">${stock["price"]:.2f} <span class="{price_change_class}">{price_change_symbol}{stock["price_change"]:.2f}%</span></div>')
+                    html_parts.append('  <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 12px;">')
+                    
+                    # Subscores
+                    for label, key in [('Financial', 'financial_health'), ('Profit', 'profitability'), ('Growth', 'growth'), ('Momentum', 'momentum'), ('Stability', 'stability')]:
+                        width = stock[key] / 20 * 100
+                        html_parts.append('    <div class="subscore-container">')
+                        html_parts.append(f'      <div class="subscore-label">{label}</div>')
+                        html_parts.append(f'      <div class="subscore-bar"><div class="subscore-fill" style="width: {width}%"></div></div>')
+                        html_parts.append('    </div>')
+                    
+                    html_parts.append('  </div>')
+                    html_parts.append('</div>')
+                    
+                    st.markdown('\n'.join(html_parts), unsafe_allow_html=True)
                 
                 with col_b:
                     # 2x2 button grid
