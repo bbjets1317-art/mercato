@@ -139,17 +139,17 @@ def get_score_change(user_id, ticker):
 
 # ============ S&P 500 SECTOR STOCKS & AUTOCOMPLETE ============
 SP500_SECTOR_STOCKS = {
-    'Technology': ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'CSCO', 'ADBE', 'CRM', 'INTC', 'AMD'],
-    'Financial Services': ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'C'],
-    'Healthcare': ['UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'PFE', 'BMY'],
-    'Consumer Cyclical': ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'LOW', 'TGT', 'TJX', 'CMG'],
-    'Consumer Defensive': ['WMT', 'PG', 'KO', 'PEP', 'COST', 'PM', 'MO', 'CL', 'KMB', 'GIS'],
-    'Industrials': ['CAT', 'GE', 'UPS', 'HON', 'BA', 'LMT', 'RTX', 'UNP', 'DE', 'MMM'],
-    'Energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HES'],
-    'Utilities': ['NEE', 'DUK', 'SO', 'D', 'AEP', 'EXC', 'SRE', 'PEG', 'XEL', 'ED'],
-    'Real Estate': ['AMT', 'PLD', 'CCI', 'EQIX', 'PSA', 'SPG', 'WELL', 'DLR', 'O', 'AVB'],
-    'Basic Materials': ['LIN', 'APD', 'ECL', 'SHW', 'NEM', 'FCX', 'NUE', 'DOW', 'DD', 'ALB'],
-    'Communication Services': ['META', 'GOOGL', 'NFLX', 'DIS', 'CMCSA', 'T', 'TMUS', 'VZ', 'EA', 'CHTR']
+    'Technology': ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'CSCO', 'ADBE', 'CRM', 'INTC', 'AMD', 'QCOM', 'TXN', 'IBM', 'NOW', 'INTU', 'AMAT', 'MU', 'LRCX', 'ADI', 'KLAC', 'SNPS', 'CDNS', 'MCHP', 'FTNT', 'ANSS', 'ADSK', 'ROP', 'KEYS', 'HPQ', 'NTAP', 'MPWR', 'ZBRA', 'ENPH', 'TYL', 'GDDY', 'AKAM', 'SWKS', 'JNPR', 'FFIV', 'GEN', 'TRMB', 'TER', 'SMCI', 'GLW', 'HPE', 'STX', 'WDC', 'DELL', 'PANW', 'CRWD', 'ZS', 'DDOG', 'NET', 'SNOW', 'MDB', 'WDAY', 'TEAM', 'HUBS', 'ZI', 'BILL'],
+    'Financial Services': ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'C', 'SPGI', 'BLK', 'SCHW', 'CB', 'MMC', 'PGR', 'AON', 'USB', 'TFC', 'PNC', 'AIG', 'MET', 'PRU', 'AFL', 'ALL', 'TRV', 'AJG', 'HIG', 'CINF', 'WTW', 'MCO', 'CME', 'ICE', 'MSCI', 'COF', 'DFS', 'SYF', 'FITB', 'HBAN', 'RF', 'KEY', 'CFG', 'NTRS', 'STT', 'BK', 'BEN', 'IVZ', 'TROW', 'L', 'GL', 'RJF', 'CBOE', 'FDS', 'MKTX', 'EG', 'AMP', 'LNC', 'WRB', 'RGA', 'FNF'],
+    'Healthcare': ['UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'PFE', 'BMY', 'AMGN', 'GILD', 'CVS', 'CI', 'ISRG', 'VRTX', 'REGN', 'HUM', 'BSX', 'MDT', 'ELV', 'ZTS', 'SYK', 'BDX', 'MCK', 'HCA', 'COR', 'A', 'IQV', 'RMD', 'DXCM', 'EW', 'IDXX', 'MTD', 'ALGN', 'BAX', 'CRL', 'CAH', 'VTRS', 'WAT', 'DGX', 'LH', 'HOLX', 'TECH', 'TFX', 'PKI', 'BIO', 'STE', 'PODD', 'INCY', 'EXAS', 'MRNA', 'BIIB', 'ILMN', 'ZBH', 'CTLT', 'WST', 'COO', 'HSIC', 'DVA'],
+    'Consumer Cyclical': ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'LOW', 'TGT', 'TJX', 'CMG', 'BKNG', 'GM', 'F', 'MAR', 'ORLY', 'AZO', 'YUM', 'ROST', 'DHI', 'LEN', 'HLT', 'EBAY', 'APTV', 'DG', 'POOL', 'BBY', 'ULTA', 'DRI', 'GPC', 'LVS', 'MGM', 'WYNN', 'CCL', 'RCL', 'NCLH', 'EXPE', 'ABNB', 'UBER', 'LYFT', 'DASH', 'ETSY', 'W', 'CHWY', 'CVNA', 'KMX', 'AN', 'PAG', 'AAP', 'DKS', 'FL', 'FIVE', 'BURL', 'LULU', 'GPS', 'RL', 'PVH', 'VFC', 'TPR', 'CPRI'],
+    'Consumer Defensive': ['WMT', 'PG', 'KO', 'PEP', 'COST', 'PM', 'MO', 'CL', 'KMB', 'GIS', 'MDLZ', 'ADM', 'KR', 'SYY', 'STZ', 'HSY', 'K', 'CHD', 'CLX', 'CAG', 'TSN', 'CPB', 'HRL', 'SJM', 'MKC', 'LW', 'TAP', 'KDP', 'BG', 'MNST', 'KHC', 'KVUE', 'EL', 'POST', 'FLO', 'LANC', 'COKE', 'DPS', 'FIZZ', 'CELH'],
+    'Industrials': ['CAT', 'GE', 'UPS', 'HON', 'BA', 'LMT', 'RTX', 'UNP', 'DE', 'MMM', 'GD', 'NOC', 'FDX', 'WM', 'CSX', 'NSC', 'EMR', 'ETN', 'ITW', 'PH', 'CMI', 'TT', 'ROK', 'CARR', 'OTIS', 'JCI', 'PCAR', 'IR', 'FAST', 'DOV', 'AME', 'VRSK', 'IEX', 'XYL', 'LDOS', 'SNA', 'GNRC', 'PWR', 'J', 'EXPD', 'CHRW', 'JBHT', 'ODFL', 'TXT', 'HWM', 'ALLE', 'AOS', 'FTV', 'BLDR', 'SWK', 'MAS', 'FBHS', 'WHR', 'NDSN', 'SSD', 'ITT', 'FLS', 'AIT', 'CR', 'GWW'],
+    'Energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HES', 'KMI', 'WMB', 'PXD', 'HAL', 'DVN', 'BKR', 'FANG', 'MRO', 'APA', 'CTRA', 'EQT', 'OKE', 'TRGP', 'LNG', 'CHK', 'AR', 'PR', 'RRC', 'NOV', 'FTI'],
+    'Utilities': ['NEE', 'DUK', 'SO', 'D', 'AEP', 'EXC', 'SRE', 'PEG', 'XEL', 'ED', 'WEC', 'ES', 'AWK', 'DTE', 'PPL', 'FE', 'EIX', 'ETR', 'AEE', 'CMS', 'NI', 'LNT', 'EVRG', 'PNW', 'NRG', 'VST', 'CNP', 'ATO', 'OGE', 'SWX'],
+    'Real Estate': ['AMT', 'PLD', 'CCI', 'EQIX', 'PSA', 'SPG', 'WELL', 'DLR', 'O', 'AVB', 'VICI', 'EQR', 'SBAC', 'VTR', 'INVH', 'ARE', 'MAA', 'KIM', 'DOC', 'HST', 'UDR', 'REG', 'BXP', 'CPT', 'FRT', 'ESS', 'VNO', 'AIV', 'EGP', 'SLG'],
+    'Basic Materials': ['LIN', 'APD', 'ECL', 'SHW', 'NEM', 'FCX', 'NUE', 'DOW', 'DD', 'ALB', 'CTVA', 'PPG', 'VMC', 'MLM', 'BALL', 'AVY', 'IP', 'PKG', 'AMCR', 'CE', 'CF', 'MOS', 'EMN', 'FMC', 'IFF', 'SEE', 'WRK', 'AA', 'X', 'STLD'],
+    'Communication Services': ['META', 'GOOGL', 'GOOG', 'NFLX', 'DIS', 'CMCSA', 'T', 'TMUS', 'VZ', 'EA', 'CHTR', 'TTWO', 'OMC', 'IPG', 'NWSA', 'NWS', 'FOXA', 'FOX', 'PARA', 'WBD', 'LYV', 'MTCH', 'LUMN', 'NYT', 'DISH', 'ATVI', 'ZM', 'PINS', 'SNAP', 'RBLX']
 }
 
 # Popular stocks for search autocomplete
