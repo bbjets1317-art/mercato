@@ -139,6 +139,77 @@ def get_score_change(user_id, ticker):
     except:
         return None
 
+def save_portfolio_score(user_id, portfolio_score):
+    """Save overall portfolio score to database"""
+    if not supabase or not user_id:
+        return False
+    try:
+        data = {
+            "user_id": str(user_id),
+            "portfolio_score": float(portfolio_score),
+            "calculated_at": datetime.utcnow().isoformat()
+        }
+        supabase.table("portfolio_score_history").insert(data).execute()
+        return True
+    except:
+        return False
+
+def get_portfolio_score_history(user_id, days=30):
+    """Get portfolio score history for graphing"""
+    if not supabase or not user_id:
+        return []
+    try:
+        cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        response = supabase.table("portfolio_score_history").select(
+            "calculated_at, portfolio_score"
+        ).eq("user_id", str(user_id)).gte("calculated_at", cutoff_date).order(
+            "calculated_at", desc=False
+        ).execute()
+        
+        if response.data:
+            return [(item['calculated_at'], item['portfolio_score']) for item in response.data]
+        return []
+    except:
+        return []
+
+def should_auto_save_scores():
+    """Check if we should auto-save scores (after market close at 4 PM ET)"""
+    now = datetime.now()
+    # Convert to ET (UTC-5 or UTC-4 depending on DST)
+    # Simple check: after 9 PM UTC (4 PM ET) and before midnight
+    hour_utc = datetime.utcnow().hour
+    return 21 <= hour_utc <= 23  # Between 4 PM and 7 PM ET
+
+def get_last_save_date(user_id):
+    """Get the last date scores were saved"""
+    if not supabase or not user_id:
+        return None
+    try:
+        response = supabase.table("portfolio_score_history").select(
+            "calculated_at"
+        ).eq("user_id", str(user_id)).order("calculated_at", desc=True).limit(1).execute()
+        
+        if response.data:
+            return datetime.fromisoformat(response.data[0]['calculated_at']).date()
+        return None
+    except:
+        return None
+
+def get_portfolio_score_change(user_id):
+    """Get portfolio score change from last save"""
+    if not supabase or not user_id:
+        return None
+    try:
+        response = supabase.table("portfolio_score_history").select(
+            "portfolio_score"
+        ).eq("user_id", str(user_id)).order("calculated_at", desc=True).limit(2).execute()
+        
+        if response.data and len(response.data) >= 2:
+            return float(response.data[0]['portfolio_score']) - float(response.data[1]['portfolio_score'])
+        return None
+    except:
+        return None
+
 # ============ S&P 500 SECTOR STOCKS & AUTOCOMPLETE ============
 @st.cache_data(ttl=86400)  # Cache for 24 hours
 def fetch_sp500_stocks():
@@ -1255,13 +1326,14 @@ def show_portfolio_history():
         history = get_portfolio_score_history(user.id, days=days)
         
         if not history:
-            st.info("No history available yet. Refresh your scores a few times over the next few days to see your portfolio's performance over time.")
+            st.info("No history available yet. Your portfolio scores will be automatically saved daily after market close (4 PM ET). Come back tomorrow to see your first data point!")
             return
         
-        # Create chart
-        dates = [h[0] for h in history]
+        # Parse dates and scores
+        dates = [datetime.fromisoformat(h[0]) for h in history]
         scores = [h[1] for h in history]
         
+        # Create chart
         fig = go.Figure()
         
         fig.add_trace(go.Scatter(
@@ -1281,11 +1353,12 @@ def show_portfolio_history():
             plot_bgcolor='white',
             paper_bgcolor='#f5f5f5',
             font=dict(family='Georgia', color='#343967'),
-            showlegend=False
+            showlegend=False,
+            yaxis_title="Portfolio Score"
         )
         
         fig.update_xaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)')
-        fig.update_yaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)', title="Score")
+        fig.update_yaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)', range=[0, 100])
         
         st.plotly_chart(fig, use_container_width=True)
         
@@ -1294,13 +1367,17 @@ def show_portfolio_history():
             change = scores[-1] - scores[0]
             change_pct = (change / scores[0]) * 100 if scores[0] != 0 else 0
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Current Score", f"{scores[-1]:.1f}")
+                st.metric("Current", f"{scores[-1]:.1f}")
             with col2:
                 st.metric("Change", f"{change:+.1f}", f"{change_pct:+.1f}%")
             with col3:
                 st.metric("Peak", f"{max(scores):.1f}")
+            with col4:
+                st.metric("Low", f"{min(scores):.1f}")
+        
+        st.caption(f"📊 Tracking {len(scores)} data points over {days} days")
 
 
 @st.dialog("Stock Preview")
@@ -1543,11 +1620,33 @@ def show_main_app():
         if st.session_state.stock_scores:
             portfolio_score = calculate_portfolio_score(st.session_state.stock_scores)
             
-            # Portfolio score
+            # Auto-save portfolio score daily after market close
+            if st.session_state.get('authenticated'):
+                last_save = get_last_save_date(st.session_state.user.id)
+                today = datetime.now().date()
+                
+                # Save once per day after market close (4 PM ET)
+                if should_auto_save_scores() and (last_save is None or last_save < today):
+                    save_portfolio_score(st.session_state.user.id, portfolio_score)
+                    # Also save individual stock scores
+                    for stock in st.session_state.stock_scores:
+                        save_score_to_db(st.session_state.user.id, stock['ticker'], stock)
+            
+            # Get portfolio score change
+            portfolio_change_html = ""
+            if st.session_state.get('authenticated'):
+                portfolio_change = get_portfolio_score_change(st.session_state.user.id)
+                if portfolio_change and portfolio_change != 0:
+                    symbol = "↑" if portfolio_change > 0 else "↓"
+                    color = "#10b981" if portfolio_change > 0 else "#ef4444"
+                    portfolio_change_html = f'<div style="color: {color}; font-size: 18px; font-weight: 500; margin-top: 10px;">{symbol}{abs(portfolio_change):.1f} since last save</div>'
+            
+            # Portfolio score with change
             st.markdown(f"""
                 <div class="health-score-container">
                     <div class="health-score-number">{portfolio_score}</div>
                     <div class="health-score-subtext">Portfolio Score</div>
+                    {portfolio_change_html}
                 </div>
             """, unsafe_allow_html=True)
             
@@ -1615,13 +1714,14 @@ def show_main_app():
                 price_change_class = "price-change-positive" if stock['price_change'] >= 0 else "price-change-negative"
                 price_change_symbol = "+" if stock['price_change'] >= 0 else ""
                 
-                # Score change if logged in (simple text, no HTML inside)
+                # Score change if logged in (smaller, subtle styling)
                 score_change_display = ""
                 if st.session_state.get('authenticated'):
                     score_change = get_score_change(st.session_state.user.id, stock['ticker'])
                     if score_change and score_change != 0:
                         symbol = "↑" if score_change > 0 else "↓"
-                        score_change_display = f" {symbol}{abs(score_change):.1f}"
+                        color = "#10b981" if score_change > 0 else "#ef4444"
+                        score_change_display = f'<span style="font-size: 14px; color: {color}; font-weight: 500; margin-left: 8px;">{symbol}{abs(score_change):.1f}</span>'
                 
                 # Company logo (keep it simple)
                 logo_display = ""
