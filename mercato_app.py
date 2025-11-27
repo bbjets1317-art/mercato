@@ -990,7 +990,7 @@ def show_main_app():
     with col1:
         if st.session_state.get('authenticated'):
             user_email = st.session_state.user.email.split('@')[0]
-            st.markdown(f'<div style="color: #343967; font-size: 13px; padding: 10px;">👤 {user_email}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="color: #343967; font-size: 13px; padding: 10px;">Logged in: {user_email}</div>', unsafe_allow_html=True)
     
     with col2:
         if LOGO_BASE64:
@@ -1040,39 +1040,43 @@ def show_main_app():
     with col3:
         add_button = st.button("Add to Portfolio", use_container_width=True)
     
-    # FIXED: Only process if button clicked AND ticker exists
-    if add_button:
-        if ticker_input:
-            mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
-            
-            if mapped_ticker in st.session_state.portfolio:
-                st.warning(f"{mapped_ticker} already in portfolio")
-            else:
-                with st.spinner('Validating stock...'):
-                    try:
-                        test_stock = yf.Ticker(mapped_ticker)
-                        test_hist = test_stock.history(period="5d")
-                        
-                        if test_hist.empty:
-                            st.error("Stock not found")
-                        else:
-                            # Add to portfolio
-                            st.session_state.portfolio.append(mapped_ticker)
-                            st.session_state.shares[mapped_ticker] = shares_input
-                            
-                            # Save to database if logged in
-                            if st.session_state.get('authenticated'):
-                                save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
-                            
-                            # Clear input and trigger recalculation
-                            st.session_state.ticker_input_value = ""
-                            st.session_state.needs_calculation = True
-                            st.success(f"{mapped_ticker} added!")
-                            st.rerun()
-                    except:
-                        st.error("Stock not found")
+    # FIXED: Only process if button clicked AND ticker exists AND not just added
+    if add_button and ticker_input and not st.session_state.get('just_added', False):
+        mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
+        
+        if mapped_ticker in st.session_state.portfolio:
+            st.warning(f"{mapped_ticker} already in portfolio")
         else:
-            st.warning("Please enter a stock ticker")
+            with st.spinner('Validating stock...'):
+                try:
+                    test_stock = yf.Ticker(mapped_ticker)
+                    test_hist = test_stock.history(period="5d")
+                    
+                    if test_hist.empty:
+                        st.error("Stock not found")
+                    else:
+                        # Add to portfolio
+                        st.session_state.portfolio.append(mapped_ticker)
+                        st.session_state.shares[mapped_ticker] = shares_input
+                        
+                        # Save to database if logged in
+                        if st.session_state.get('authenticated'):
+                            save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                        
+                        # Clear input and trigger recalculation
+                        st.session_state.ticker_input_value = ""
+                        st.session_state.needs_calculation = True
+                        st.session_state.just_added = True
+                        st.success(f"{mapped_ticker} added!")
+                        st.rerun()
+                except:
+                    st.error("Stock not found")
+    elif add_button and not ticker_input:
+        st.warning("Please enter a stock ticker")
+    
+    # Reset the just_added flag
+    if 'just_added' in st.session_state and st.session_state.just_added:
+        st.session_state.just_added = False
     
     # Portfolio display
     if st.session_state.portfolio:
@@ -1115,8 +1119,36 @@ def show_main_app():
             
             st.markdown("<br>", unsafe_allow_html=True)
             
+            # Sort options
+            col_sort1, col_sort2 = st.columns([3, 2])
+            with col_sort1:
+                st.markdown('<div style="font-size: 14px; font-weight: 600; color: #343967; padding: 10px 0;">Sort by:</div>', unsafe_allow_html=True)
+            with col_sort2:
+                sort_option = st.selectbox(
+                    "Sort by",
+                    ["Overall Score", "Financial Health", "Profitability", "Growth", "Momentum", "Stability"],
+                    label_visibility="collapsed",
+                    key="sort_option"
+                )
+            
+            # Sort stocks based on selection
+            sort_map = {
+                "Overall Score": "final_score",
+                "Financial Health": "financial_health",
+                "Profitability": "profitability",
+                "Growth": "growth",
+                "Momentum": "momentum",
+                "Stability": "stability"
+            }
+            
+            sorted_stocks = sorted(
+                st.session_state.stock_scores, 
+                key=lambda x: x[sort_map[sort_option]], 
+                reverse=True
+            )
+            
             # Stock cards with FIXED visibility
-            for stock in st.session_state.stock_scores:
+            for stock in sorted_stocks:
                 price_change_class = "price-change-positive" if stock['price_change'] >= 0 else "price-change-negative"
                 price_change_symbol = "+" if stock['price_change'] >= 0 else ""
                 
@@ -1198,15 +1230,15 @@ def show_main_app():
             # Action buttons
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🔄 Refresh Scores", use_container_width=True):
+                if st.button("Refresh Scores", use_container_width=True):
                     st.session_state.needs_calculation = True
                     st.rerun()
             
             with col2:
-                # FIXED: Export report
+                # Export report
                 html_report = generate_html_report(st.session_state.stock_scores, portfolio_score)
                 st.download_button(
-                    label="📄 Export Report",
+                    label="Export Report",
                     data=html_report,
                     file_name=f"mercato_report_{datetime.now().strftime('%Y%m%d')}.html",
                     mime="text/html",
