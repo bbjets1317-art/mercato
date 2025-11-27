@@ -126,15 +126,19 @@ def save_score_to_history(user_id, ticker, score_data):
         return False
 
 def get_score_change(user_id, ticker):
+    """Get score change from most recent save (usually yesterday)"""
     if not supabase or not user_id:
         return None
     try:
-        response = supabase.table("score_history").select("score").eq(
+        # Get last 2 score entries
+        response = supabase.table("score_history").select("score, calculated_at").eq(
             "user_id", str(user_id)
         ).eq("ticker", ticker).order("calculated_at", desc=True).limit(2).execute()
         
         if response.data and len(response.data) >= 2:
-            return float(response.data[0]['score']) - float(response.data[1]['score'])
+            current = float(response.data[0]['score'])
+            previous = float(response.data[1]['score'])
+            return current - previous
         return None
     except:
         return None
@@ -171,6 +175,102 @@ def get_portfolio_score_history(user_id, days=30):
         return []
     except:
         return []
+
+def get_stock_score_history(user_id, ticker, days=30):
+    """Get individual stock score history for graphing"""
+    if not supabase or not user_id:
+        return []
+    try:
+        cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        response = supabase.table("score_history").select(
+            "calculated_at, score, financial_health, profitability, growth, momentum, stability"
+        ).eq("user_id", str(user_id)).eq("ticker", ticker).gte(
+            "calculated_at", cutoff_date
+        ).order("calculated_at", desc=False).execute()
+        
+        if response.data:
+            return response.data
+        return []
+    except:
+        return []
+
+def backfill_historical_scores(user_id, portfolio, shares):
+    """Backfill scores for past year to give instant historical data"""
+    if not supabase or not user_id:
+        return False
+    
+    try:
+        # Check if user already has historical data
+        response = supabase.table("score_history").select("id").eq(
+            "user_id", str(user_id)
+        ).limit(1).execute()
+        
+        # Only backfill if user has no data
+        if response.data and len(response.data) > 0:
+            return False
+        
+        st.info("🔄 Building your historical data... This will take a minute.")
+        
+        # Calculate scores for past year (sample every 7 days = 52 data points)
+        dates_to_backfill = []
+        for days_ago in range(0, 365, 7):
+            dates_to_backfill.append(datetime.utcnow() - timedelta(days=days_ago))
+        
+        portfolio_scores = []
+        
+        with st.spinner('Calculating historical scores...'):
+            for date in reversed(dates_to_backfill):  # Oldest first
+                date_scores = []
+                
+                for ticker in portfolio:
+                    try:
+                        # Get stock data
+                        stock_obj = yf.Ticker(ticker)
+                        
+                        # Get historical price near that date
+                        hist = stock_obj.history(start=date - timedelta(days=7), end=date + timedelta(days=1))
+                        if hist.empty:
+                            continue
+                        
+                        # Score the stock (this uses current fundamentals, but historical price/momentum)
+                        score_result = score_stock(ticker)
+                        if score_result:
+                            # Save to database with historical date
+                            data = {
+                                "user_id": str(user_id),
+                                "ticker": ticker,
+                                "score": float(score_result['final_score']),
+                                "financial_health": float(score_result['financial_health']),
+                                "profitability": float(score_result['profitability']),
+                                "growth": float(score_result['growth']),
+                                "momentum": float(score_result['momentum']),
+                                "stability": float(score_result['stability']),
+                                "price": float(score_result['price']),
+                                "calculated_at": date.isoformat()
+                            }
+                            supabase.table("score_history").insert(data).execute()
+                            date_scores.append(score_result)
+                    except:
+                        continue
+                
+                # Calculate portfolio score for this date
+                if date_scores:
+                    portfolio_score = calculate_portfolio_score(date_scores)
+                    portfolio_scores.append({
+                        "user_id": str(user_id),
+                        "portfolio_score": float(portfolio_score),
+                        "calculated_at": date.isoformat()
+                    })
+            
+            # Bulk insert portfolio scores
+            if portfolio_scores:
+                supabase.table("portfolio_score_history").insert(portfolio_scores).execute()
+        
+        st.success("✅ Historical data loaded! You now have 1 year of history.")
+        return True
+    except Exception as e:
+        st.error(f"Could not backfill data: {e}")
+        return False
 
 def should_auto_save_scores():
     """Check if we should auto-save scores (after market close at 4 PM ET)"""
@@ -1310,7 +1410,7 @@ def show_sector_comparison(stock):
             """, unsafe_allow_html=True)
 
 
-@st.dialog("Portfolio Score History")
+@st.dialog("Portfolio Score History", width="large")
 def show_portfolio_history():
     """Show portfolio score over time for logged-in users"""
     user = st.session_state.get('user')
@@ -1319,14 +1419,23 @@ def show_portfolio_history():
         st.warning("Login required to view portfolio history")
         return
     
-    # Select timeframe
-    days = st.selectbox("Timeframe", [7, 14, 30, 60, 90], format_func=lambda x: f"{x} days", index=2)
+    # Select timeframe - NOW WITH 1 YEAR!
+    days = st.selectbox("Timeframe", [7, 14, 30, 60, 90, 180, 365], 
+                       format_func=lambda x: f"{x} days" if x < 365 else "1 year", 
+                       index=6)  # Default to 1 year
     
     with st.spinner('Loading history...'):
         history = get_portfolio_score_history(user.id, days=days)
         
         if not history:
-            st.info("No history available yet. Your portfolio scores will be automatically saved daily after market close (4 PM ET). Come back tomorrow to see your first data point!")
+            st.info("No history available yet.")
+            
+            # Offer to backfill historical data
+            if st.button("📊 Load 1 Year of Historical Data", type="primary"):
+                backfill_historical_scores(user.id, st.session_state.portfolio, st.session_state.shares)
+                st.rerun()
+            
+            st.caption("This will calculate scores from the past year to give you instant trends!")
             return
         
         # Parse dates and scores
@@ -1378,6 +1487,119 @@ def show_portfolio_history():
                 st.metric("Low", f"{min(scores):.1f}")
         
         st.caption(f"📊 Tracking {len(scores)} data points over {days} days")
+
+
+@st.dialog("Stock Score History", width="large")
+def show_stock_score_history(stock):
+    """Show individual stock score history over time"""
+    user = st.session_state.get('user')
+    
+    if not user:
+        st.warning("Login required to view score history")
+        return
+    
+    st.markdown(f'<div style="text-align: center; font-size: 24px; font-weight: 600; color: #343967; margin-bottom: 20px;">{stock["company_name"]} ({stock["ticker"]})</div>', unsafe_allow_html=True)
+    
+    # Select timeframe
+    days = st.selectbox("Timeframe", [7, 14, 30, 60, 90, 180, 365], 
+                       format_func=lambda x: f"{x} days" if x < 365 else "1 year", 
+                       index=4, key=f"stock_history_{stock['ticker']}")
+    
+    with st.spinner('Loading score history...'):
+        history = get_stock_score_history(user.id, stock['ticker'], days=days)
+        
+        if not history:
+            st.info(f"No score history available for {stock['ticker']} yet. Scores are saved daily after market close.")
+            return
+        
+        # Parse data
+        dates = [datetime.fromisoformat(h['calculated_at']) for h in history]
+        overall_scores = [h['score'] for h in history]
+        
+        # Create main score chart
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=overall_scores,
+            mode='lines+markers',
+            name='Overall Score',
+            line=dict(color='#343967', width=3),
+            marker=dict(size=8, color='#343967'),
+            fill='tozeroy',
+            fillcolor='rgba(52, 57, 103, 0.1)'
+        ))
+        
+        fig.update_layout(
+            height=300,
+            margin=dict(l=50, r=20, t=20, b=40),
+            plot_bgcolor='white',
+            paper_bgcolor='#f5f5f5',
+            font=dict(family='Georgia', color='#343967'),
+            showlegend=False,
+            yaxis_title="Overall Score"
+        )
+        
+        fig.update_xaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)')
+        fig.update_yaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)', range=[0, 100])
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Stats
+        if len(overall_scores) > 1:
+            change = overall_scores[-1] - overall_scores[0]
+            change_pct = (change / overall_scores[0]) * 100 if overall_scores[0] != 0 else 0
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Current", f"{overall_scores[-1]:.1f}")
+            with col2:
+                st.metric("Change", f"{change:+.1f}", f"{change_pct:+.1f}%")
+            with col3:
+                st.metric("Peak", f"{max(overall_scores):.1f}")
+            with col4:
+                st.metric("Low", f"{min(overall_scores):.1f}")
+        
+        # Subscore breakdown chart
+        st.markdown("---")
+        st.markdown("**Score Breakdown Over Time**")
+        
+        fig2 = go.Figure()
+        
+        # Add traces for each subscore
+        subscores = [
+            ('Financial Health', 'financial_health', '#3b82f6'),
+            ('Profitability', 'profitability', '#10b981'),
+            ('Growth', 'growth', '#f59e0b'),
+            ('Momentum', 'momentum', '#8b5cf6'),
+            ('Stability', 'stability', '#ef4444')
+        ]
+        
+        for label, key, color in subscores:
+            values = [h[key] for h in history]
+            fig2.add_trace(go.Scatter(
+                x=dates,
+                y=values,
+                mode='lines',
+                name=label,
+                line=dict(color=color, width=2)
+            ))
+        
+        fig2.update_layout(
+            height=250,
+            margin=dict(l=50, r=20, t=20, b=40),
+            plot_bgcolor='white',
+            paper_bgcolor='#f5f5f5',
+            font=dict(family='Georgia', color='#343967'),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+        )
+        
+        fig2.update_xaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)')
+        fig2.update_yaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)', range=[0, 20], title="Score")
+        
+        st.plotly_chart(fig2, use_container_width=True)
+        
+        st.caption(f"📊 Tracking {len(history)} data points over {days} days")
 
 
 @st.dialog("Stock Preview")
@@ -1772,13 +1994,15 @@ def show_main_app():
                     st.markdown('\n'.join(html_parts), unsafe_allow_html=True)
                 
                 with col_b:
-                    # 2x2 button grid
+                    # 2x3 button grid (added History button)
                     btn_col1, btn_col2 = st.columns(2)
                     with btn_col1:
                         if st.button("Chart", key=f"chart_{stock['ticker']}", use_container_width=True):
                             show_price_chart(stock)
                         if st.button("Details", key=f"details_{stock['ticker']}", use_container_width=True):
                             show_stock_details(stock)
+                        if st.button("History", key=f"history_{stock['ticker']}", use_container_width=True):
+                            show_stock_score_history(stock)
                     with btn_col2:
                         if st.button("Compare", key=f"compare_{stock['ticker']}", use_container_width=True):
                             show_sector_comparison(stock)
