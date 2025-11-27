@@ -1455,10 +1455,29 @@ def show_main_app():
                 for j, ticker in enumerate(matches[i:i+cols_per_row]):
                     with cols[j]:
                         if st.button(ticker, key=f"auto_{ticker}_{i}", use_container_width=True):
-                            # Set the input and trigger add
-                            st.session_state.stock_search = ticker
-                            st.session_state.trigger_add = True
-                            st.rerun()
+                            # Directly add the clicked ticker
+                            if ticker not in st.session_state.portfolio:
+                                with st.spinner(f'Adding {ticker}...'):
+                                    try:
+                                        test_stock = yf.Ticker(ticker)
+                                        test_hist = test_stock.history(period="5d")
+                                        
+                                        if not test_hist.empty:
+                                            st.session_state.portfolio.append(ticker)
+                                            st.session_state.shares[ticker] = 1.0  # Default 1 share
+                                            
+                                            if st.session_state.get('authenticated'):
+                                                save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                                            
+                                            st.session_state.needs_calculation = True
+                                            st.success(f"✓ {ticker} added!")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Stock '{ticker}' not found")
+                                    except:
+                                        st.error(f"❌ Could not add '{ticker}'")
+                            else:
+                                st.warning(f"{ticker} already in portfolio")
     
     # Shares input and Search button
     col1, col2, col3 = st.columns([3, 1, 1])
@@ -1467,10 +1486,8 @@ def show_main_app():
     with col3:
         search_clicked = st.button("Add", use_container_width=True, type="primary", key="search_btn")
     
-    # Process search (button click OR trigger from autocomplete)
-    if search_clicked or st.session_state.get('trigger_add'):
-        st.session_state.trigger_add = False  # Reset trigger
-        
+    # Process manual search button
+    if search_clicked:
         if ticker_input:
             mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
             
