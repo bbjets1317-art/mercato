@@ -1610,16 +1610,16 @@ def show_main_app():
                         if st.button("Compare", key=f"compare_{stock['ticker']}", use_container_width=True):
                             show_sector_comparison(stock)
                         if st.button("Remove", key=f"remove_{stock['ticker']}", use_container_width=True):
-                        st.session_state.portfolio.remove(stock['ticker'])
-                        if stock['ticker'] in st.session_state.shares:
-                            del st.session_state.shares[stock['ticker']]
-                        st.session_state.stock_scores = [s for s in st.session_state.stock_scores if s['ticker'] != stock['ticker']]
-                        
-                        # Update database if logged in
-                        if st.session_state.get('authenticated'):
-                            save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
-                        
-                        st.rerun()
+                            st.session_state.portfolio.remove(stock['ticker'])
+                            if stock['ticker'] in st.session_state.shares:
+                                del st.session_state.shares[stock['ticker']]
+                            st.session_state.stock_scores = [s for s in st.session_state.stock_scores if s['ticker'] != stock['ticker']]
+                            
+                            # Update database if logged in
+                            if st.session_state.get('authenticated'):
+                                save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                            
+                            st.rerun()
             
             st.markdown("<br>", unsafe_allow_html=True)
             
