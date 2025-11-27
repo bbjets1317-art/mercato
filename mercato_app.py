@@ -154,7 +154,8 @@ SP500_SECTOR_STOCKS = {
 
 # Popular stocks for search autocomplete
 POPULAR_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'V', 'JNJ',
-    'WMT', 'JPM', 'MA', 'PG', 'UNH', 'HD', 'DIS', 'BAC', 'ADBE', 'CRM', 'NFLX', 'CSCO', 'INTC', 'AMD']
+    'WMT', 'JPM', 'MA', 'PG', 'UNH', 'HD', 'DIS', 'BAC', 'ADBE', 'CRM', 'NFLX', 'CSCO', 'INTC', 'AMD',
+    'SPY', 'QQQ', 'VOO', 'VTI', 'IWM', 'EEM', 'GLD', 'TLT', 'AGG', 'VNQ', 'XLF', 'XLE', 'XLK', 'XLV']
 
 # ============ COMPANY TICKER MAP ============
 COMPANY_TICKER_MAP = {
@@ -339,6 +340,8 @@ st.markdown("""
         border-radius: 10px;
         border: none;
         width: 100%;
+        white-space: nowrap;
+        overflow: visible;
     }
     
     .stButton > button:hover {
@@ -418,6 +421,10 @@ def get_stock_data(ticker):
         
         company_name = info.get('longName', info.get('shortName', ticker))
         
+        # Detect if this is an ETF
+        quote_type = info.get('quoteType', '')
+        is_etf = quote_type == 'ETF' or 'fund' in company_name.lower() or 'etf' in company_name.lower()
+        
         # Get logo URL
         logo_url = None
         website = info.get('website', '')
@@ -429,18 +436,19 @@ def get_stock_data(ticker):
             'ticker': ticker,
             'company_name': company_name,
             'logo_url': logo_url,
-            'sector': info.get('sector', 'Unknown'),
+            'sector': info.get('sector', 'ETF' if is_etf else 'Unknown'),
+            'is_etf': is_etf,
             'price': hist['Close'].iloc[-1],
             'prev_close': hist['Close'].iloc[-2] if len(hist) >= 2 else hist['Close'].iloc[-1],
-            'total_debt': info.get('totalDebt', 0),
-            'total_cash': info.get('totalCash', 0),
-            'free_cash_flow': info.get('freeCashflow', 0),
-            'market_cap': info.get('marketCap', 1),
-            'profit_margin': info.get('profitMargins', 0),
-            'operating_margin': info.get('operatingMargins', 0),
-            'roe': info.get('returnOnEquity', 0),
-            'revenue_growth': info.get('revenueGrowth', 0),
-            'earnings_growth': info.get('earningsGrowth', 0),
+            'total_debt': info.get('totalDebt', 0) if not is_etf else 0,
+            'total_cash': info.get('totalCash', 0) if not is_etf else 0,
+            'free_cash_flow': info.get('freeCashflow', 0) if not is_etf else 0,
+            'market_cap': info.get('marketCap', info.get('totalAssets', 1)),
+            'profit_margin': info.get('profitMargins', 0) if not is_etf else 0,
+            'operating_margin': info.get('operatingMargins', 0) if not is_etf else 0,
+            'roe': info.get('returnOnEquity', 0) if not is_etf else 0,
+            'revenue_growth': info.get('revenueGrowth', 0) if not is_etf else 0,
+            'earnings_growth': info.get('earningsGrowth', 0) if not is_etf else 0,
             'beta': info.get('beta', 1),
             'fifty_two_week_high': info.get('fiftyTwoWeekHigh', 0),
             'fifty_two_week_low': info.get('fiftyTwoWeekLow', 0),
@@ -706,12 +714,23 @@ def score_stock(ticker):
     if data is None:
         return None
     
-    # Pass full data dict to scoring functions (includes sector)
-    financial_health = calculate_financial_health(data)
-    profitability = calculate_profitability(data)
-    growth = calculate_growth(data)
-    momentum = calculate_momentum(data)
-    stability = calculate_stability(data)
+    # Check if ETF
+    is_etf = data.get('is_etf', False)
+    
+    if is_etf:
+        # ETFs don't have fundamentals, so only score momentum and stability
+        financial_health = 10.0  # Neutral score
+        profitability = 10.0  # Neutral score
+        growth = 10.0  # Neutral score
+        momentum = calculate_momentum(data)
+        stability = calculate_stability(data)
+    else:
+        # Normal stock scoring
+        financial_health = calculate_financial_health(data)
+        profitability = calculate_profitability(data)
+        growth = calculate_growth(data)
+        momentum = calculate_momentum(data)
+        stability = calculate_stability(data)
     
     final_score = financial_health + profitability + growth + momentum + stability
     price_change = ((data['price'] - data['prev_close']) / data['prev_close']) * 100
@@ -721,6 +740,7 @@ def score_stock(ticker):
         'company_name': data['company_name'],
         'logo_url': data['logo_url'],
         'sector': data['sector'],
+        'is_etf': is_etf,
         'price': data['price'],
         'price_change': price_change,
         'financial_health': round(financial_health, 1),
@@ -1105,23 +1125,23 @@ def show_price_chart(stock):
         st.error(f"Could not load price data: {e}")
 
 
-@st.dialog("Sector Comparison")
+@st.dialog("Sector Comparison", width="large")
 def show_sector_comparison(stock):
-    """Show how stock ranks in its sector"""
+    """Show how stock ranks in its sector - ALL stocks"""
     st.markdown(f'<div style="text-align: center; font-size: 24px; font-weight: 600; color: #343967; margin-bottom: 10px;">{stock["company_name"]}</div>', unsafe_allow_html=True)
     st.markdown(f'<div style="text-align: center; font-size: 16px; color: #666; margin-bottom: 20px;">Sector: {stock["sector"]}</div>', unsafe_allow_html=True)
     
-    # Get stocks in same sector
+    # Get ALL stocks in same sector
     sector_stocks = SP500_SECTOR_STOCKS.get(stock['sector'], [])
     
     if not sector_stocks:
         st.warning("Sector comparison not available for this stock")
         return
     
-    with st.spinner('Analyzing sector...'):
-        # Score all stocks in sector
+    with st.spinner(f'Analyzing all {len(sector_stocks)} stocks in {stock["sector"]}...'):
+        # Score ALL stocks in sector
         sector_scores = []
-        for ticker in sector_stocks[:10]:  # Limit to 10 for speed
+        for ticker in sector_stocks:
             try:
                 score_result = score_stock(ticker)
                 if score_result:
@@ -1139,11 +1159,18 @@ def show_sector_comparison(stock):
         # Find current stock's rank
         current_rank = next((i+1 for i, s in enumerate(sector_scores) if s['ticker'] == stock['ticker']), None)
         
+        # Show rank at top
         if current_rank:
-            st.markdown(f'<div style="text-align: center; font-size: 48px; font-weight: 200; color: #343967; margin: 20px 0;">#{current_rank} of {len(sector_scores)}</div>', unsafe_allow_html=True)
+            st.markdown(f"""
+                <div style="background: #343967; padding: 30px; border-radius: 16px; text-align: center; margin: 20px 0;">
+                    <div style="color: #e6e0d5; font-size: 18px; margin-bottom: 10px;">Rank in {stock['sector']}</div>
+                    <div style="color: #e6e0d5; font-size: 72px; font-weight: 200;">#{current_rank}</div>
+                    <div style="color: #d0c9bc; font-size: 16px;">out of {len(sector_scores)} stocks</div>
+                </div>
+            """, unsafe_allow_html=True)
         
-        # Show leaderboard
-        st.markdown('<div style="font-size: 18px; font-weight: 600; color: #343967; margin: 20px 0;">Sector Leaderboard</div>', unsafe_allow_html=True)
+        # Show full leaderboard
+        st.markdown(f'<div style="font-size: 18px; font-weight: 600; color: #343967; margin: 20px 0;">Full {stock["sector"]} Leaderboard</div>', unsafe_allow_html=True)
         
         for i, s in enumerate(sector_scores):
             is_current = s['ticker'] == stock['ticker']
@@ -1238,7 +1265,8 @@ def show_stock_preview(ticker):
             return
         
         # Display stock info
-        st.markdown(f'<div style="text-align: center; font-size: 28px; font-weight: 600; color: #343967; margin-bottom: 5px;">{score_result["company_name"]}</div>', unsafe_allow_html=True)
+        etf_badge = '<span style="background: #10b981; color: white; font-size: 12px; padding: 3px 8px; border-radius: 4px; margin-left: 10px;">ETF</span>' if score_result.get('is_etf') else ''
+        st.markdown(f'<div style="text-align: center; font-size: 28px; font-weight: 600; color: #343967; margin-bottom: 5px;">{score_result["company_name"]}{etf_badge}</div>', unsafe_allow_html=True)
         st.markdown(f'<div style="text-align: center; font-size: 16px; color: #666; margin-bottom: 20px;">{score_result["ticker"]} - {score_result["sector"]}</div>', unsafe_allow_html=True)
         
         # Score
@@ -1352,74 +1380,67 @@ def show_main_app():
     # Add stocks section
     st.markdown('<div class="section-header">Add Stocks to Portfolio</div>', unsafe_allow_html=True)
     
-    # Stock search with autocomplete
-    ticker_input = st.text_input(
-        "Search stocks", 
-        placeholder="Type ticker or company name...",
-        key="stock_search"
-    ).upper()
+    # Single search bar
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        ticker_input = st.text_input(
+            "Search stocks", 
+            placeholder="Type ticker or company name (e.g. AAPL, TSLA)...",
+            key="stock_search",
+            label_visibility="collapsed"
+        ).upper()
     
-    # Show autocomplete suggestions
+    with col2:
+        shares_input = st.number_input("Shares", min_value=0.001, value=1.0, step=0.1, format="%.3f", label_visibility="collapsed", key="shares_main")
+    
+    # Show autocomplete suggestions when typing
     if ticker_input and len(ticker_input) >= 1:
-        # Filter matching tickers
         matches = [t for t in POPULAR_STOCKS if ticker_input in t]
         
         if matches:
-            st.markdown('<div style="font-size: 13px; color: #666; margin: 8px 0;">Suggestions:</div>', unsafe_allow_html=True)
-            cols = st.columns(min(len(matches), 5))
-            for i, ticker in enumerate(matches[:10]):
-                with cols[i % 5]:
-                    if st.button(ticker, key=f"suggest_{ticker}", use_container_width=True):
-                        show_stock_preview(ticker)
-    
-    # Manual add form
-    with st.form(key="add_stock_form", clear_on_submit=True):
-        col1, col2 = st.columns([3, 2])
-        
-        with col1:
-            manual_ticker = st.text_input(
-                "Or enter manually", 
-                label_visibility="collapsed", 
-                placeholder="Ticker (e.g. AAPL)"
-            ).upper()
-        
-        with col2:
-            shares_input = st.number_input("Shares", min_value=0.001, value=1.0, step=0.1, format="%.3f", label_visibility="collapsed")
-        
-        add_button = st.form_submit_button("Add to Portfolio", use_container_width=True)
-    
-    # Process form submission
-    if add_button:
-        if manual_ticker:
-            mapped_ticker = COMPANY_TICKER_MAP.get(manual_ticker, manual_ticker)
+            st.markdown('<div style="font-size: 12px; color: #666; margin: 5px 0;">Click to preview or press Enter to add:</div>', unsafe_allow_html=True)
             
-            if mapped_ticker in st.session_state.portfolio:
-                st.warning(f"{mapped_ticker} already in portfolio")
-            else:
-                with st.spinner('Validating stock...'):
-                    try:
-                        test_stock = yf.Ticker(mapped_ticker)
-                        test_hist = test_stock.history(period="5d")
-                        
-                        if test_hist.empty:
+            # Show up to 10 matches in rows of 5
+            for i in range(0, min(len(matches), 10), 5):
+                cols = st.columns(5)
+                for j, ticker in enumerate(matches[i:i+5]):
+                    with cols[j]:
+                        if st.button(ticker, key=f"suggest_{ticker}_{i}", use_container_width=True):
+                            show_stock_preview(ticker)
+    
+    # Add button
+    col_btn1, col_btn2, col_btn3 = st.columns([2, 2, 2])
+    with col_btn2:
+        if st.button("Add to Portfolio", use_container_width=True, type="primary", key="add_main"):
+            if ticker_input:
+                mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
+                
+                if mapped_ticker in st.session_state.portfolio:
+                    st.warning(f"{mapped_ticker} already in portfolio")
+                else:
+                    with st.spinner('Validating stock...'):
+                        try:
+                            test_stock = yf.Ticker(mapped_ticker)
+                            test_hist = test_stock.history(period="5d")
+                            
+                            if test_hist.empty:
+                                st.error("Stock not found")
+                            else:
+                                # Add to portfolio
+                                st.session_state.portfolio.append(mapped_ticker)
+                                st.session_state.shares[mapped_ticker] = shares_input
+                                
+                                # Save if logged in
+                                if st.session_state.get('authenticated'):
+                                    save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                                
+                                st.session_state.needs_calculation = True
+                                st.success(f"{mapped_ticker} added!")
+                                st.rerun()
+                        except:
                             st.error("Stock not found")
-                        else:
-                            # Add to portfolio
-                            st.session_state.portfolio.append(mapped_ticker)
-                            st.session_state.shares[mapped_ticker] = shares_input
-                            
-                            # Save to database if logged in
-                            if st.session_state.get('authenticated'):
-                                save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
-                            
-                            # Trigger recalculation
-                            st.session_state.needs_calculation = True
-                            st.success(f"{mapped_ticker} added!")
-                            st.rerun()
-                    except:
-                        st.error("Stock not found")
-        else:
-            st.warning("Please enter a stock ticker")
+            else:
+                st.warning("Please enter a stock ticker")
     
     # Portfolio display
     if st.session_state.portfolio:
@@ -1531,7 +1552,7 @@ def show_main_app():
                 if stock.get('logo_url'):
                     logo_html = f'<img src="{stock["logo_url"]}" class="company-logo" onerror="this.style.display=\'none\'">'
                 
-                col_a, col_b, col_c, col_d, col_e = st.columns([5, 1, 1, 1, 1])
+                col_a, col_b = st.columns([4, 1])
                 
                 with col_a:
                     st.markdown(f"""
@@ -1541,7 +1562,10 @@ def show_main_app():
                                 <div style="flex: 1;">
                                     <div style="display: flex; justify-content: space-between; align-items: center;">
                                         <div>
-                                            <div class="company-name">{stock['company_name']}</div>
+                                            <div class="company-name">
+                                                {stock['company_name']}
+                                                {'<span style="background: #10b981; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">ETF</span>' if stock.get('is_etf') else ''}
+                                            </div>
                                             <div class="stock-ticker">{stock['ticker']} - {stock['shares']} shares</div>
                                         </div>
                                         <div class="stock-score">{stock['final_score']}{score_change_text}</div>
@@ -1575,19 +1599,17 @@ def show_main_app():
                     """, unsafe_allow_html=True)
                 
                 with col_b:
-                    if st.button("Chart", key=f"chart_{stock['ticker']}", use_container_width=True):
-                        show_price_chart(stock)
-                
-                with col_c:
-                    if st.button("Compare", key=f"compare_{stock['ticker']}", use_container_width=True):
-                        show_sector_comparison(stock)
-                
-                with col_d:
-                    if st.button("Details", key=f"details_{stock['ticker']}", use_container_width=True):
-                        show_stock_details(stock)
-                
-                with col_e:
-                    if st.button("Remove", key=f"remove_{stock['ticker']}", use_container_width=True):
+                    # 2x2 button grid
+                    btn_col1, btn_col2 = st.columns(2)
+                    with btn_col1:
+                        if st.button("Chart", key=f"chart_{stock['ticker']}", use_container_width=True):
+                            show_price_chart(stock)
+                        if st.button("Details", key=f"details_{stock['ticker']}", use_container_width=True):
+                            show_stock_details(stock)
+                    with btn_col2:
+                        if st.button("Compare", key=f"compare_{stock['ticker']}", use_container_width=True):
+                            show_sector_comparison(stock)
+                        if st.button("Remove", key=f"remove_{stock['ticker']}", use_container_width=True):
                         st.session_state.portfolio.remove(stock['ticker'])
                         if stock['ticker'] in st.session_state.shares:
                             del st.session_state.shares[stock['ticker']]
