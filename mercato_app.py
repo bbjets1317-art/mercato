@@ -1019,64 +1019,55 @@ def show_main_app():
     # Add stocks section
     st.markdown('<div class="section-header">Add Stocks to Portfolio</div>', unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([3, 2, 2])
-    
-    with col1:
-        # FIXED: Use session state to clear input after adding
-        if 'ticker_input_value' not in st.session_state:
-            st.session_state.ticker_input_value = ""
+    # Use form to prevent double submission
+    with st.form(key="add_stock_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns([3, 2, 2])
         
-        ticker_input = st.text_input(
-            "Stock ticker or company name", 
-            key="main_ticker",
-            value=st.session_state.ticker_input_value,
-            label_visibility="collapsed", 
-            placeholder="Enter ticker (e.g. AAPL, TSLA)"
-        ).upper()
-    
-    with col2:
-        shares_input = st.number_input("Shares", min_value=0.001, value=1.0, step=0.1, format="%.3f", label_visibility="collapsed")
-    
-    with col3:
-        add_button = st.button("Add to Portfolio", use_container_width=True)
-    
-    # FIXED: Only process if button clicked AND ticker exists AND not just added
-    if add_button and ticker_input and not st.session_state.get('just_added', False):
-        mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
+        with col1:
+            ticker_input = st.text_input(
+                "Stock ticker or company name", 
+                label_visibility="collapsed", 
+                placeholder="Enter ticker (e.g. AAPL, TSLA)"
+            ).upper()
         
-        if mapped_ticker in st.session_state.portfolio:
-            st.warning(f"{mapped_ticker} already in portfolio")
-        else:
-            with st.spinner('Validating stock...'):
-                try:
-                    test_stock = yf.Ticker(mapped_ticker)
-                    test_hist = test_stock.history(period="5d")
-                    
-                    if test_hist.empty:
+        with col2:
+            shares_input = st.number_input("Shares", min_value=0.001, value=1.0, step=0.1, format="%.3f", label_visibility="collapsed")
+        
+        with col3:
+            add_button = st.form_submit_button("Add to Portfolio", use_container_width=True)
+    
+    # Process form submission
+    if add_button:
+        if ticker_input:
+            mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
+            
+            if mapped_ticker in st.session_state.portfolio:
+                st.warning(f"{mapped_ticker} already in portfolio")
+            else:
+                with st.spinner('Validating stock...'):
+                    try:
+                        test_stock = yf.Ticker(mapped_ticker)
+                        test_hist = test_stock.history(period="5d")
+                        
+                        if test_hist.empty:
+                            st.error("Stock not found")
+                        else:
+                            # Add to portfolio
+                            st.session_state.portfolio.append(mapped_ticker)
+                            st.session_state.shares[mapped_ticker] = shares_input
+                            
+                            # Save to database if logged in
+                            if st.session_state.get('authenticated'):
+                                save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                            
+                            # Trigger recalculation
+                            st.session_state.needs_calculation = True
+                            st.success(f"{mapped_ticker} added!")
+                            st.rerun()
+                    except:
                         st.error("Stock not found")
-                    else:
-                        # Add to portfolio
-                        st.session_state.portfolio.append(mapped_ticker)
-                        st.session_state.shares[mapped_ticker] = shares_input
-                        
-                        # Save to database if logged in
-                        if st.session_state.get('authenticated'):
-                            save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
-                        
-                        # Clear input and trigger recalculation
-                        st.session_state.ticker_input_value = ""
-                        st.session_state.needs_calculation = True
-                        st.session_state.just_added = True
-                        st.success(f"{mapped_ticker} added!")
-                        st.rerun()
-                except:
-                    st.error("Stock not found")
-    elif add_button and not ticker_input:
-        st.warning("Please enter a stock ticker")
-    
-    # Reset the just_added flag
-    if 'just_added' in st.session_state and st.session_state.just_added:
-        st.session_state.just_added = False
+        else:
+            st.warning("Please enter a stock ticker")
     
     # Portfolio display
     if st.session_state.portfolio:
