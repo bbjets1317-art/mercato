@@ -365,6 +365,28 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# ============ SECTOR BENCHMARKS FOR INDUSTRY ADJUSTMENT ============
+SECTOR_BENCHMARKS = {
+    'Technology': {'profit_margin': 0.20, 'operating_margin': 0.25, 'growth': 0.15},
+    'Financial Services': {'profit_margin': 0.20, 'operating_margin': 0.30, 'growth': 0.08},
+    'Healthcare': {'profit_margin': 0.12, 'operating_margin': 0.18, 'growth': 0.10},
+    'Consumer Cyclical': {'profit_margin': 0.08, 'operating_margin': 0.10, 'growth': 0.08},
+    'Consumer Defensive': {'profit_margin': 0.05, 'operating_margin': 0.08, 'growth': 0.05},
+    'Industrials': {'profit_margin': 0.08, 'operating_margin': 0.12, 'growth': 0.06},
+    'Energy': {'profit_margin': 0.10, 'operating_margin': 0.15, 'growth': 0.05},
+    'Utilities': {'profit_margin': 0.10, 'operating_margin': 0.15, 'growth': 0.03},
+    'Real Estate': {'profit_margin': 0.15, 'operating_margin': 0.20, 'growth': 0.05},
+    'Basic Materials': {'profit_margin': 0.10, 'operating_margin': 0.15, 'growth': 0.05},
+    'Communication Services': {'profit_margin': 0.15, 'operating_margin': 0.20, 'growth': 0.10},
+}
+
+# Default benchmark for unknown sectors
+DEFAULT_BENCHMARK = {'profit_margin': 0.12, 'operating_margin': 0.15, 'growth': 0.08}
+
+def get_sector_benchmark(sector):
+    """Get benchmark for a sector, or return default"""
+    return SECTOR_BENCHMARKS.get(sector, DEFAULT_BENCHMARK)
+
 # ============ STOCK SCORING FUNCTIONS ============
 def get_stock_data(ticker):
     try:
@@ -410,6 +432,9 @@ def get_stock_data(ticker):
 
 def calculate_financial_health(data):
     scores = []
+    weights = []
+    
+    # Debt Score (30% weight)
     debt_ratio = data['total_debt'] / data['market_cap'] if data['market_cap'] > 0 else 1
     if debt_ratio < 0.2:
         debt_score = 1.0
@@ -420,11 +445,15 @@ def calculate_financial_health(data):
     else:
         debt_score = 0.4
     scores.append(debt_score)
+    weights.append(0.30)
     
+    # Cash Score (30% weight)
     cash_ratio = data['total_cash'] / data['market_cap'] if data['market_cap'] > 0 else 0
     cash_score = min(1.0, cash_ratio * 5 + 0.3)
     scores.append(cash_score)
+    weights.append(0.30)
     
+    # FCF Score (40% weight - MORE IMPORTANT)
     fcf_ratio = data['free_cash_flow'] / data['market_cap'] if data['market_cap'] > 0 else 0
     if fcf_ratio > 0.05:
         fcf_score = 0.9
@@ -433,37 +462,56 @@ def calculate_financial_health(data):
     else:
         fcf_score = 0.4
     scores.append(fcf_score)
+    weights.append(0.40)
     
-    return np.mean(scores) * 20
+    # Weighted average
+    weighted_score = sum(s * w for s, w in zip(scores, weights))
+    return weighted_score * 20
 
 def calculate_profitability(data):
     scores = []
+    
+    # Get sector benchmark
+    benchmark = get_sector_benchmark(data.get('sector', 'Unknown'))
+    
+    # Profit Margin Score (sector-adjusted)
     pm = data['profit_margin']
-    if pm > 0.30:
+    pm_benchmark = benchmark['profit_margin']
+    
+    # Compare to sector benchmark
+    if pm > pm_benchmark * 2:  # 2x sector average = excellent
         pm_score = 1.0
-    elif pm > 0.20:
-        pm_score = 0.75
-    elif pm > 0.12:
-        pm_score = 0.55
-    elif pm > 0.06:
+    elif pm > pm_benchmark * 1.5:  # 1.5x sector average = great
+        pm_score = 0.85
+    elif pm > pm_benchmark:  # Above sector average = good
+        pm_score = 0.70
+    elif pm > pm_benchmark * 0.7:  # Slightly below average
+        pm_score = 0.50
+    elif pm > 0:  # Profitable but weak
         pm_score = 0.35
-    else:
-        pm_score = max(0.15, pm * 3)
+    else:  # Unprofitable
+        pm_score = 0.20
     scores.append(pm_score)
     
+    # Operating Margin Score (sector-adjusted)
     om = data['operating_margin']
-    if om > 0.35:
+    om_benchmark = benchmark['operating_margin']
+    
+    if om > om_benchmark * 2:
         om_score = 1.0
-    elif om > 0.25:
-        om_score = 0.75
-    elif om > 0.15:
-        om_score = 0.55
-    elif om > 0.08:
+    elif om > om_benchmark * 1.5:
+        om_score = 0.85
+    elif om > om_benchmark:
+        om_score = 0.70
+    elif om > om_benchmark * 0.7:
+        om_score = 0.50
+    elif om > 0:
         om_score = 0.35
     else:
-        om_score = max(0.15, om * 2.5)
+        om_score = 0.20
     scores.append(om_score)
     
+    # ROE Score (universal - not sector-specific)
     roe = data['roe']
     if roe > 0.25:
         roe_score = 1.0
@@ -474,13 +522,15 @@ def calculate_profitability(data):
     elif roe > 0.06:
         roe_score = 0.35
     else:
-        roe_score = max(0.15, roe * 2.5)
+        roe_score = max(0.15, roe * 2.5) if roe > 0 else 0.15
     scores.append(roe_score)
     
     return np.mean(scores) * 20
 
 def calculate_growth(data):
     scores = []
+    
+    # Revenue Growth
     rev = data['revenue_growth']
     if rev > 0.2:
         rev_score = 1.0
@@ -494,6 +544,7 @@ def calculate_growth(data):
         rev_score = 0.35
     scores.append(rev_score)
     
+    # Earnings Growth
     earn = data['earnings_growth']
     if earn > 0.2:
         earn_score = 1.0
@@ -507,8 +558,23 @@ def calculate_growth(data):
         earn_score = 0.35
     scores.append(earn_score)
     
-    scores.append(0.65)
-    return np.mean(scores) * 20
+    # FIXED: Removed hardcoded 0.65
+    # Add market cap size adjustment
+    market_cap = data['market_cap']
+    if market_cap > 200_000_000_000:  # $200B+ mega cap
+        size_bonus = 0.15  # Bonus for maintaining growth at huge size
+    elif market_cap > 10_000_000_000:  # $10B+ large cap
+        size_bonus = 0.05
+    elif market_cap < 2_000_000_000:  # <$2B small cap
+        size_penalty = -0.1  # Penalty for small cap (easier to grow)
+        size_bonus = size_penalty
+    else:
+        size_bonus = 0
+    
+    base_score = np.mean(scores)
+    adjusted_score = min(1.0, max(0.2, base_score + size_bonus))
+    
+    return adjusted_score * 20
 
 def calculate_momentum(data):
     try:
@@ -621,6 +687,7 @@ def score_stock(ticker):
     if data is None:
         return None
     
+    # Pass full data dict to scoring functions (includes sector)
     financial_health = calculate_financial_health(data)
     profitability = calculate_profitability(data)
     growth = calculate_growth(data)
