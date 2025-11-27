@@ -1,6 +1,6 @@
 """
 Mercato - The Market Made Simple
-All bugs fixed + features added
+Enhanced with: Daily tracking, Portfolio history, Image upload
 """
 
 import streamlit as st
@@ -8,11 +8,14 @@ import yfinance as yf
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import base64
 from io import BytesIO
 import requests
 from bs4 import BeautifulSoup
+import re
+from PIL import Image
+import pytesseract
 
 # Try to import Supabase
 try:
@@ -106,6 +109,7 @@ def load_portfolio_from_db(user_id):
         return [], {}
 
 def save_score_to_history(user_id, ticker, score_data):
+    """Save individual stock score to history"""
     if not supabase or not user_id:
         return False
     try:
@@ -125,7 +129,74 @@ def save_score_to_history(user_id, ticker, score_data):
     except:
         return False
 
+def save_portfolio_score_to_history(user_id, portfolio_score, stock_scores):
+    """Save overall portfolio score snapshot"""
+    if not supabase or not user_id:
+        return False
+    try:
+        # Calculate portfolio metrics
+        total_value = sum(s['price'] * s['shares'] for s in stock_scores)
+        avg_financial = np.mean([s['financial_health'] for s in stock_scores])
+        avg_profit = np.mean([s['profitability'] for s in stock_scores])
+        avg_growth = np.mean([s['growth'] for s in stock_scores])
+        avg_momentum = np.mean([s['momentum'] for s in stock_scores])
+        avg_stability = np.mean([s['stability'] for s in stock_scores])
+        
+        data = {
+            "user_id": str(user_id),
+            "portfolio_score": float(portfolio_score),
+            "total_value": float(total_value),
+            "num_stocks": len(stock_scores),
+            "avg_financial_health": float(avg_financial),
+            "avg_profitability": float(avg_profit),
+            "avg_growth": float(avg_growth),
+            "avg_momentum": float(avg_momentum),
+            "avg_stability": float(avg_stability)
+        }
+        supabase.table("portfolio_history").insert(data).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error saving portfolio history: {e}")
+        return False
+
+def get_portfolio_history(user_id, days=365):
+    """Get portfolio score history for past X days"""
+    if not supabase or not user_id:
+        return []
+    try:
+        cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+        response = supabase.table("portfolio_history").select(
+            "calculated_at, portfolio_score, total_value"
+        ).eq("user_id", str(user_id)).gte(
+            "calculated_at", cutoff_date
+        ).order("calculated_at", desc=False).execute()
+        
+        if response.data:
+            return [(item['calculated_at'], item['portfolio_score'], item['total_value']) for item in response.data]
+        return []
+    except:
+        return []
+
+def get_stock_score_history(user_id, ticker, days=365):
+    """Get individual stock score history"""
+    if not supabase or not user_id:
+        return []
+    try:
+        cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+        response = supabase.table("score_history").select(
+            "calculated_at, score, price"
+        ).eq("user_id", str(user_id)).eq(
+            "ticker", ticker
+        ).gte("calculated_at", cutoff_date).order("calculated_at", desc=False).execute()
+        
+        if response.data:
+            return [(item['calculated_at'], item['score'], item['price']) for item in response.data]
+        return []
+    except:
+        return []
+
 def get_score_change(user_id, ticker):
+    """Get score change from previous calculation"""
     if not supabase or not user_id:
         return None
     try:
@@ -139,12 +210,77 @@ def get_score_change(user_id, ticker):
     except:
         return None
 
+def check_and_run_daily_update(user_id):
+    """Check if daily update needs to run (at 4 PM ET market close)"""
+    if not supabase or not user_id:
+        return False
+    
+    try:
+        # Get last update time
+        response = supabase.table("portfolio_history").select(
+            "calculated_at"
+        ).eq("user_id", str(user_id)).order("calculated_at", desc=True).limit(1).execute()
+        
+        now = datetime.now()
+        
+        # Check if it's after 4 PM ET (market close)
+        market_close_time = time(16, 0)  # 4:00 PM
+        
+        if response.data:
+            last_update = datetime.fromisoformat(response.data[0]['calculated_at'].replace('Z', '+00:00'))
+            
+            # If last update was today after 4 PM, skip
+            if last_update.date() == now.date() and last_update.time() > market_close_time:
+                return False
+        
+        # Run update if it's after 4 PM and hasn't been done today
+        if now.time() > market_close_time:
+            return True
+        
+        return False
+    except:
+        return False
+
+# ============ IMAGE PROCESSING FOR PORTFOLIO UPLOAD ============
+def extract_tickers_from_image(image):
+    """Extract stock tickers from uploaded portfolio screenshot"""
+    try:
+        # Convert to PIL Image if needed
+        if not isinstance(image, Image.Image):
+            image = Image.open(image)
+        
+        # Use OCR to extract text
+        text = pytesseract.image_to_string(image)
+        
+        # Find all potential tickers (1-5 uppercase letters)
+        potential_tickers = re.findall(r'\b[A-Z]{1,5}\b', text)
+        
+        # Filter to valid tickers by checking against known stocks
+        valid_tickers = []
+        for ticker in set(potential_tickers):
+            # Skip common words that might be mistaken for tickers
+            if ticker in ['USD', 'ETF', 'STOCK', 'PRICE', 'VALUE', 'TOTAL', 'CASH', 'DATE', 'TIME']:
+                continue
+            
+            # Quick validation - try to fetch the ticker
+            try:
+                test_stock = yf.Ticker(ticker)
+                test_hist = test_stock.history(period="5d")
+                if not test_hist.empty:
+                    valid_tickers.append(ticker)
+            except:
+                continue
+        
+        return valid_tickers
+    except Exception as e:
+        st.error(f"Error processing image: {e}")
+        return []
+
 # ============ S&P 500 SECTOR STOCKS & AUTOCOMPLETE ============
-@st.cache_data(ttl=86400)  # Cache for 24 hours
+@st.cache_data(ttl=86400)
 def fetch_sp500_stocks():
     """Fetch S&P 500 stocks from Wikipedia, use hardcoded backup if fails"""
     try:
-        # Try to fetch from Wikipedia
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
         response = requests.get(url, timeout=10)
         
@@ -155,15 +291,12 @@ def fetch_sp500_stocks():
             if table:
                 df = pd.read_html(str(table))[0]
                 
-                # Group by sector
                 sector_stocks = {}
                 for sector in df['GICS Sector'].unique():
                     tickers = df[df['GICS Sector'] == sector]['Symbol'].tolist()
-                    # Clean tickers (replace dots with dashes for Yahoo Finance)
                     tickers = [t.replace('.', '-') if '.' in t else t for t in tickers]
                     sector_stocks[sector] = tickers
                 
-                # Map Wikipedia sector names to our display names
                 sector_name_map = {
                     'Information Technology': 'Technology',
                     'Financials': 'Financial Services',
@@ -173,7 +306,6 @@ def fetch_sp500_stocks():
                     'Materials': 'Basic Materials'
                 }
                 
-                # Remap sector names
                 mapped_sectors = {}
                 for sector, tickers in sector_stocks.items():
                     display_name = sector_name_map.get(sector, sector)
@@ -181,42 +313,32 @@ def fetch_sp500_stocks():
                 
                 return mapped_sectors
     except Exception as e:
-        st.warning(f"Could not fetch live S&P 500 data from Wikipedia, using backup list")
+        st.warning(f"Could not fetch live S&P 500 data, using backup list")
     
-    # Return hardcoded backup if fetch fails
     return {
-        'Technology': ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'CSCO', 'ADBE', 'CRM', 'INTC', 'AMD', 'QCOM', 'TXN', 'IBM', 'NOW', 'INTU', 'AMAT', 'MU', 'LRCX', 'ADI', 'KLAC', 'SNPS', 'CDNS', 'MCHP', 'FTNT', 'ANSS', 'ADSK', 'ROP', 'KEYS', 'HPQ', 'NTAP', 'MPWR', 'ZBRA', 'ENPH', 'TYL', 'GDDY', 'AKAM', 'SWKS', 'JNPR', 'FFIV', 'GEN', 'TRMB', 'TER', 'SMCI', 'GLW', 'HPE', 'STX', 'WDC', 'DELL', 'PANW', 'CRWD', 'ZS', 'DDOG', 'NET', 'SNOW', 'MDB', 'WDAY', 'TEAM', 'HUBS', 'ZI', 'BILL'],
-        'Financial Services': ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'C', 'SPGI', 'BLK', 'SCHW', 'CB', 'MMC', 'PGR', 'AON', 'USB', 'TFC', 'PNC', 'AIG', 'MET', 'PRU', 'AFL', 'ALL', 'TRV', 'AJG', 'HIG', 'CINF', 'WTW', 'MCO', 'CME', 'ICE', 'MSCI', 'COF', 'DFS', 'SYF', 'FITB', 'HBAN', 'RF', 'KEY', 'CFG', 'NTRS', 'STT', 'BK', 'BEN', 'IVZ', 'TROW', 'L', 'GL', 'RJF', 'CBOE', 'FDS', 'MKTX', 'EG', 'AMP', 'LNC', 'WRB', 'RGA', 'FNF'],
-        'Healthcare': ['UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'PFE', 'BMY', 'AMGN', 'GILD', 'CVS', 'CI', 'ISRG', 'VRTX', 'REGN', 'HUM', 'BSX', 'MDT', 'ELV', 'ZTS', 'SYK', 'BDX', 'MCK', 'HCA', 'COR', 'A', 'IQV', 'RMD', 'DXCM', 'EW', 'IDXX', 'MTD', 'ALGN', 'BAX', 'CRL', 'CAH', 'VTRS', 'WAT', 'DGX', 'LH', 'HOLX', 'TECH', 'TFX', 'PKI', 'BIO', 'STE', 'PODD', 'INCY', 'EXAS', 'MRNA', 'BIIB', 'ILMN', 'ZBH', 'CTLT', 'WST', 'COO', 'HSIC', 'DVA'],
-        'Consumer Cyclical': ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'LOW', 'TGT', 'TJX', 'CMG', 'BKNG', 'GM', 'F', 'MAR', 'ORLY', 'AZO', 'YUM', 'ROST', 'DHI', 'LEN', 'HLT', 'EBAY', 'APTV', 'DG', 'POOL', 'BBY', 'ULTA', 'DRI', 'GPC', 'LVS', 'MGM', 'WYNN', 'CCL', 'RCL', 'NCLH', 'EXPE', 'ABNB', 'UBER', 'LYFT', 'DASH', 'ETSY', 'W', 'CHWY', 'CVNA', 'KMX', 'AN', 'PAG', 'AAP', 'DKS', 'FL', 'FIVE', 'BURL', 'LULU', 'GPS', 'RL', 'PVH', 'VFC', 'TPR', 'CPRI'],
-        'Consumer Defensive': ['WMT', 'PG', 'KO', 'PEP', 'COST', 'PM', 'MO', 'CL', 'KMB', 'GIS', 'MDLZ', 'ADM', 'KR', 'SYY', 'STZ', 'HSY', 'K', 'CHD', 'CLX', 'CAG', 'TSN', 'CPB', 'HRL', 'SJM', 'MKC', 'LW', 'TAP', 'KDP', 'BG', 'MNST', 'KHC', 'KVUE', 'EL', 'POST', 'FLO', 'LANC', 'COKE', 'DPS', 'FIZZ', 'CELH'],
-        'Industrials': ['CAT', 'GE', 'UPS', 'HON', 'BA', 'LMT', 'RTX', 'UNP', 'DE', 'MMM', 'GD', 'NOC', 'FDX', 'WM', 'CSX', 'NSC', 'EMR', 'ETN', 'ITW', 'PH', 'CMI', 'TT', 'ROK', 'CARR', 'OTIS', 'JCI', 'PCAR', 'IR', 'FAST', 'DOV', 'AME', 'VRSK', 'IEX', 'XYL', 'LDOS', 'SNA', 'GNRC', 'PWR', 'J', 'EXPD', 'CHRW', 'JBHT', 'ODFL', 'TXT', 'HWM', 'ALLE', 'AOS', 'FTV', 'BLDR', 'SWK', 'MAS', 'FBHS', 'WHR', 'NDSN', 'SSD', 'ITT', 'FLS', 'AIT', 'CR', 'GWW'],
-        'Energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HES', 'KMI', 'WMB', 'PXD', 'HAL', 'DVN', 'BKR', 'FANG', 'MRO', 'APA', 'CTRA', 'EQT', 'OKE', 'TRGP', 'LNG', 'CHK', 'AR', 'PR', 'RRC', 'NOV', 'FTI'],
-        'Utilities': ['NEE', 'DUK', 'SO', 'D', 'AEP', 'EXC', 'SRE', 'PEG', 'XEL', 'ED', 'WEC', 'ES', 'AWK', 'DTE', 'PPL', 'FE', 'EIX', 'ETR', 'AEE', 'CMS', 'NI', 'LNT', 'EVRG', 'PNW', 'NRG', 'VST', 'CNP', 'ATO', 'OGE', 'SWX'],
-        'Real Estate': ['AMT', 'PLD', 'CCI', 'EQIX', 'PSA', 'SPG', 'WELL', 'DLR', 'O', 'AVB', 'VICI', 'EQR', 'SBAC', 'VTR', 'INVH', 'ARE', 'MAA', 'KIM', 'DOC', 'HST', 'UDR', 'REG', 'BXP', 'CPT', 'FRT', 'ESS', 'VNO', 'AIV', 'EGP', 'SLG'],
-        'Basic Materials': ['LIN', 'APD', 'ECL', 'SHW', 'NEM', 'FCX', 'NUE', 'DOW', 'DD', 'ALB', 'CTVA', 'PPG', 'VMC', 'MLM', 'BALL', 'AVY', 'IP', 'PKG', 'AMCR', 'CE', 'CF', 'MOS', 'EMN', 'FMC', 'IFF', 'SEE', 'WRK', 'AA', 'X', 'STLD'],
-        'Communication Services': ['META', 'GOOGL', 'GOOG', 'NFLX', 'DIS', 'CMCSA', 'T', 'TMUS', 'VZ', 'EA', 'CHTR', 'TTWO', 'OMC', 'IPG', 'NWSA', 'NWS', 'FOXA', 'FOX', 'PARA', 'WBD', 'LYV', 'MTCH', 'LUMN', 'NYT', 'DISH', 'ATVI', 'ZM', 'PINS', 'SNAP', 'RBLX']
+        'Technology': ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'CSCO', 'ADBE', 'CRM', 'INTC', 'AMD'],
+        'Financial Services': ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'C'],
+        'Healthcare': ['UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'PFE', 'BMY'],
+        'Consumer Cyclical': ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'LOW', 'TGT', 'TJX', 'CMG'],
+        'Consumer Defensive': ['WMT', 'PG', 'KO', 'PEP', 'COST', 'PM', 'MO', 'CL', 'KMB', 'GIS'],
+        'Industrials': ['CAT', 'GE', 'UPS', 'HON', 'BA', 'LMT', 'RTX', 'UNP', 'DE', 'MMM'],
+        'Energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HES'],
+        'Utilities': ['NEE', 'DUK', 'SO', 'D', 'AEP', 'EXC', 'SRE', 'PEG', 'XEL', 'ED'],
+        'Real Estate': ['AMT', 'PLD', 'CCI', 'EQIX', 'PSA', 'SPG', 'WELL', 'DLR', 'O', 'AVB'],
+        'Basic Materials': ['LIN', 'APD', 'ECL', 'SHW', 'NEM', 'FCX', 'NUE', 'DOW', 'DD', 'ALB'],
+        'Communication Services': ['META', 'GOOGL', 'GOOG', 'NFLX', 'DIS', 'CMCSA', 'T', 'TMUS', 'VZ', 'EA']
     }
 
-# Load S&P 500 stocks (will fetch from Wikipedia or use backup)
 SP500_SECTOR_STOCKS = fetch_sp500_stocks()
 
-# Popular stocks for search autocomplete
 POPULAR_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'V', 'JNJ',
     'WMT', 'JPM', 'MA', 'PG', 'UNH', 'HD', 'DIS', 'BAC', 'ADBE', 'CRM', 'NFLX', 'CSCO', 'INTC', 'AMD',
-    'SPY', 'QQQ', 'VOO', 'VTI', 'IWM', 'EEM', 'GLD', 'TLT', 'AGG', 'VNQ', 'XLF', 'XLE', 'XLK', 'XLV']
+    'SPY', 'QQQ', 'VOO', 'VTI', 'IWM', 'EEM', 'GLD', 'TLT', 'AGG', 'VNQ']
 
-# ============ COMPANY TICKER MAP ============
 COMPANY_TICKER_MAP = {
     'APPLE': 'AAPL', 'MICROSOFT': 'MSFT', 'GOOGLE': 'GOOGL', 'ALPHABET': 'GOOGL',
     'AMAZON': 'AMZN', 'TESLA': 'TSLA', 'META': 'META', 'FACEBOOK': 'META',
-    'NVIDIA': 'NVDA', 'NETFLIX': 'NFLX', 'DISNEY': 'DIS', 'WALMART': 'WMT',
-    'VISA': 'V', 'MASTERCARD': 'MA', 'JPMORGAN': 'JPM', 'BANK OF AMERICA': 'BAC',
-    'COCA COLA': 'KO', 'PEPSI': 'PEP', 'NIKE': 'NKE', 'STARBUCKS': 'SBUX',
-    'BOEING': 'BA', 'INTEL': 'INTC', 'AMD': 'AMD', 'ORACLE': 'ORCL',
-    'SALESFORCE': 'CRM', 'ADOBE': 'ADBE', 'UBER': 'UBER', 'AIRBNB': 'ABNB',
-    'SPOTIFY': 'SPOT', 'SNAP': 'SNAP', 'ZOOM': 'ZM', 'SHOPIFY': 'SHOP',
-    'COINBASE': 'COIN', 'PALANTIR': 'PLTR', 'RIVIAN': 'RIVN', 'TARGET': 'TGT'
+    'NVIDIA': 'NVDA', 'NETFLIX': 'NFLX', 'DISNEY': 'DIS', 'WALMART': 'WMT'
 }
 
 # Load logo
@@ -226,10 +348,9 @@ try:
 except:
     LOGO_BASE64 = None
 
-# Page config
 st.set_page_config(page_title="Mercato", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
-# ============ CSS WITH BETTER VISIBILITY ============
+# ============ CSS ============
 st.markdown("""
     <style>
     :root {
@@ -359,7 +480,6 @@ st.markdown("""
     .price-change-positive { color: #10b981; font-weight: 600; }
     .price-change-negative { color: #ef4444; font-weight: 600; }
     
-    /* FIXED: Better visibility for subscores */
     .subscore-container { margin: 10px 0; }
     .subscore-label { 
         color: #e6e0d5; 
@@ -419,7 +539,6 @@ st.markdown("""
         padding: 10px;
     }
     
-    /* Logo header */
     .logo-header {
         display: flex;
         align-items: center;
@@ -436,7 +555,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ============ SECTOR BENCHMARKS FOR INDUSTRY ADJUSTMENT ============
+# ============ SECTOR BENCHMARKS ============
 SECTOR_BENCHMARKS = {
     'Technology': {'profit_margin': 0.20, 'operating_margin': 0.25, 'growth': 0.15},
     'Financial Services': {'profit_margin': 0.20, 'operating_margin': 0.30, 'growth': 0.08},
@@ -451,11 +570,9 @@ SECTOR_BENCHMARKS = {
     'Communication Services': {'profit_margin': 0.15, 'operating_margin': 0.20, 'growth': 0.10},
 }
 
-# Default benchmark for unknown sectors
 DEFAULT_BENCHMARK = {'profit_margin': 0.12, 'operating_margin': 0.15, 'growth': 0.08}
 
 def get_sector_benchmark(sector):
-    """Get benchmark for a sector, or return default"""
     return SECTOR_BENCHMARKS.get(sector, DEFAULT_BENCHMARK)
 
 # ============ STOCK SCORING FUNCTIONS ============
@@ -469,12 +586,9 @@ def get_stock_data(ticker):
             return None
         
         company_name = info.get('longName', info.get('shortName', ticker))
-        
-        # Detect if this is an ETF
         quote_type = info.get('quoteType', '')
         is_etf = quote_type == 'ETF' or 'fund' in company_name.lower() or 'etf' in company_name.lower()
         
-        # Get logo URL
         logo_url = None
         website = info.get('website', '')
         if website:
@@ -510,7 +624,6 @@ def calculate_financial_health(data):
     scores = []
     weights = []
     
-    # Debt Score (30% weight)
     debt_ratio = data['total_debt'] / data['market_cap'] if data['market_cap'] > 0 else 1
     if debt_ratio < 0.2:
         debt_score = 1.0
@@ -523,13 +636,11 @@ def calculate_financial_health(data):
     scores.append(debt_score)
     weights.append(0.30)
     
-    # Cash Score (30% weight)
     cash_ratio = data['total_cash'] / data['market_cap'] if data['market_cap'] > 0 else 0
     cash_score = min(1.0, cash_ratio * 5 + 0.3)
     scores.append(cash_score)
     weights.append(0.30)
     
-    # FCF Score (40% weight - MORE IMPORTANT)
     fcf_ratio = data['free_cash_flow'] / data['market_cap'] if data['market_cap'] > 0 else 0
     if fcf_ratio > 0.05:
         fcf_score = 0.9
@@ -540,36 +651,30 @@ def calculate_financial_health(data):
     scores.append(fcf_score)
     weights.append(0.40)
     
-    # Weighted average
     weighted_score = sum(s * w for s, w in zip(scores, weights))
     return weighted_score * 20
 
 def calculate_profitability(data):
     scores = []
-    
-    # Get sector benchmark
     benchmark = get_sector_benchmark(data.get('sector', 'Unknown'))
     
-    # Profit Margin Score (sector-adjusted)
     pm = data['profit_margin']
     pm_benchmark = benchmark['profit_margin']
     
-    # Compare to sector benchmark
-    if pm > pm_benchmark * 2:  # 2x sector average = excellent
+    if pm > pm_benchmark * 2:
         pm_score = 1.0
-    elif pm > pm_benchmark * 1.5:  # 1.5x sector average = great
+    elif pm > pm_benchmark * 1.5:
         pm_score = 0.85
-    elif pm > pm_benchmark:  # Above sector average = good
+    elif pm > pm_benchmark:
         pm_score = 0.70
-    elif pm > pm_benchmark * 0.7:  # Slightly below average
+    elif pm > pm_benchmark * 0.7:
         pm_score = 0.50
-    elif pm > 0:  # Profitable but weak
+    elif pm > 0:
         pm_score = 0.35
-    else:  # Unprofitable
+    else:
         pm_score = 0.20
     scores.append(pm_score)
     
-    # Operating Margin Score (sector-adjusted)
     om = data['operating_margin']
     om_benchmark = benchmark['operating_margin']
     
@@ -587,7 +692,6 @@ def calculate_profitability(data):
         om_score = 0.20
     scores.append(om_score)
     
-    # ROE Score (universal - not sector-specific)
     roe = data['roe']
     if roe > 0.25:
         roe_score = 1.0
@@ -606,7 +710,6 @@ def calculate_profitability(data):
 def calculate_growth(data):
     scores = []
     
-    # Revenue Growth
     rev = data['revenue_growth']
     if rev > 0.2:
         rev_score = 1.0
@@ -620,7 +723,6 @@ def calculate_growth(data):
         rev_score = 0.35
     scores.append(rev_score)
     
-    # Earnings Growth
     earn = data['earnings_growth']
     if earn > 0.2:
         earn_score = 1.0
@@ -634,16 +736,13 @@ def calculate_growth(data):
         earn_score = 0.35
     scores.append(earn_score)
     
-    # FIXED: Removed hardcoded 0.65
-    # Add market cap size adjustment
     market_cap = data['market_cap']
-    if market_cap > 200_000_000_000:  # $200B+ mega cap
-        size_bonus = 0.15  # Bonus for maintaining growth at huge size
-    elif market_cap > 10_000_000_000:  # $10B+ large cap
+    if market_cap > 200_000_000_000:
+        size_bonus = 0.15
+    elif market_cap > 10_000_000_000:
         size_bonus = 0.05
-    elif market_cap < 2_000_000_000:  # <$2B small cap
-        size_penalty = -0.1  # Penalty for small cap (easier to grow)
-        size_bonus = size_penalty
+    elif market_cap < 2_000_000_000:
+        size_bonus = -0.1
     else:
         size_bonus = 0
     
@@ -763,18 +862,15 @@ def score_stock(ticker):
     if data is None:
         return None
     
-    # Check if ETF
     is_etf = data.get('is_etf', False)
     
     if is_etf:
-        # ETFs don't have fundamentals, so only score momentum and stability
-        financial_health = 10.0  # Neutral score
-        profitability = 10.0  # Neutral score
-        growth = 10.0  # Neutral score
+        financial_health = 10.0
+        profitability = 10.0
+        growth = 10.0
         momentum = calculate_momentum(data)
         stability = calculate_stability(data)
     else:
-        # Normal stock scoring
         financial_health = calculate_financial_health(data)
         profitability = calculate_profitability(data)
         growth = calculate_growth(data)
@@ -994,7 +1090,6 @@ SCORE_DESCRIPTIONS = {
 
 @st.dialog("Welcome to Mercato")
 def show_initial_login_dialog():
-    """Initial login dialog"""
     st.markdown('<div style="text-align: center; margin-bottom: 20px;"><div style="font-size: 18px; color: #343967;">Sign in to save your portfolio, or skip to use without saving</div></div>', unsafe_allow_html=True)
     
     tab1, tab2 = st.tabs(["Login", "Sign Up"])
@@ -1013,7 +1108,6 @@ def show_initial_login_dialog():
                             st.session_state.user = result.user
                             st.session_state.authenticated = True
                             
-                            # Load saved portfolio
                             portfolio, shares = load_portfolio_from_db(result.user.id)
                             if portfolio:
                                 st.session_state.portfolio = portfolio
@@ -1070,7 +1164,6 @@ def show_initial_login_dialog():
 
 @st.dialog("Stock Details")
 def show_stock_details(stock):
-    """Show detailed stock breakdown"""
     st.markdown(f'<div style="text-align: center; font-size: 24px; font-weight: 600; color: #343967; margin-bottom: 20px;">{stock["company_name"]}</div>', unsafe_allow_html=True)
     
     st.markdown(f"""
@@ -1113,15 +1206,13 @@ def show_stock_details(stock):
 
 @st.dialog("Price Chart")
 def show_price_chart(stock):
-    """Show price chart with different timeframes"""
     st.markdown(f'<div style="text-align: center; font-size: 24px; font-weight: 600; color: #343967; margin-bottom: 20px;">{stock["company_name"]} ({stock["ticker"]})</div>', unsafe_allow_html=True)
     
-    # Timeframe selector
     timeframe = st.radio(
         "Select timeframe",
         ["1 Day", "1 Week", "1 Month", "3 Months", "6 Months", "1 Year", "5 Years"],
         horizontal=True,
-        index=5  # Default to 1 Year
+        index=5
     )
     
     periods = {"1 Day": "1d", "1 Week": "5d", "1 Month": "1mo", "3 Months": "3mo", "6 Months": "6mo", "1 Year": "1y", "5 Years": "5y"}
@@ -1134,7 +1225,6 @@ def show_price_chart(stock):
         if not hist.empty:
             fig = go.Figure()
             
-            # Candlestick chart
             fig.add_trace(go.Candlestick(
                 x=hist.index,
                 open=hist['Open'],
@@ -1160,7 +1250,6 @@ def show_price_chart(stock):
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # Price stats
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Current", f"${hist['Close'].iloc[-1]:.2f}")
@@ -1176,11 +1265,9 @@ def show_price_chart(stock):
 
 @st.dialog("Sector Comparison", width="large")
 def show_sector_comparison(stock):
-    """Show how stock ranks in its sector - ALL stocks"""
     st.markdown(f'<div style="text-align: center; font-size: 24px; font-weight: 600; color: #343967; margin-bottom: 10px;">{stock["company_name"]}</div>', unsafe_allow_html=True)
     st.markdown(f'<div style="text-align: center; font-size: 16px; color: #666; margin-bottom: 20px;">Sector: {stock["sector"]}</div>', unsafe_allow_html=True)
     
-    # Get ALL stocks in same sector
     sector_stocks = SP500_SECTOR_STOCKS.get(stock['sector'], [])
     
     if not sector_stocks:
@@ -1188,7 +1275,6 @@ def show_sector_comparison(stock):
         return
     
     with st.spinner(f'Analyzing all {len(sector_stocks)} stocks in {stock["sector"]}...'):
-        # Score ALL stocks in sector
         sector_scores = []
         for ticker in sector_stocks:
             try:
@@ -1202,13 +1288,9 @@ def show_sector_comparison(stock):
             st.error("Could not load sector data")
             return
         
-        # Sort by overall score
         sector_scores.sort(key=lambda x: x['final_score'], reverse=True)
-        
-        # Find current stock's rank
         current_rank = next((i+1 for i, s in enumerate(sector_scores) if s['ticker'] == stock['ticker']), None)
         
-        # Show rank at top
         if current_rank:
             st.markdown(f"""
                 <div style="background: #343967; padding: 30px; border-radius: 16px; text-align: center; margin: 20px 0;">
@@ -1218,7 +1300,6 @@ def show_sector_comparison(stock):
                 </div>
             """, unsafe_allow_html=True)
         
-        # Show full leaderboard
         st.markdown(f'<div style="font-size: 18px; font-weight: 600; color: #343967; margin: 20px 0;">Full {stock["sector"]} Leaderboard</div>', unsafe_allow_html=True)
         
         for i, s in enumerate(sector_scores):
@@ -1239,31 +1320,32 @@ def show_sector_comparison(stock):
             """, unsafe_allow_html=True)
 
 
-@st.dialog("Portfolio Score History")
-def show_portfolio_history():
-    """Show portfolio score over time for logged-in users"""
+@st.dialog("Portfolio History", width="large")
+def show_portfolio_history_dialog():
+    """Show portfolio score and value over time"""
     user = st.session_state.get('user')
     
     if not user:
         st.warning("Login required to view portfolio history")
         return
     
-    # Select timeframe
-    days = st.selectbox("Timeframe", [7, 14, 30, 60, 90], format_func=lambda x: f"{x} days", index=2)
+    days = st.selectbox("Timeframe", [7, 14, 30, 60, 90, 180, 365], format_func=lambda x: f"{x} days" if x < 365 else "1 year", index=6)
     
     with st.spinner('Loading history...'):
-        history = get_portfolio_score_history(user.id, days=days)
+        history = get_portfolio_history(user.id, days=days)
         
         if not history:
-            st.info("No history available yet. Refresh your scores a few times over the next few days to see your portfolio's performance over time.")
+            st.info("No history available yet. Your portfolio score is automatically tracked daily at market close (4 PM ET). Check back tomorrow to see your first data point!")
             return
         
-        # Create chart
-        dates = [h[0] for h in history]
+        dates = [datetime.fromisoformat(h[0].replace('Z', '+00:00')) for h in history]
         scores = [h[1] for h in history]
+        values = [h[2] for h in history]
         
+        # Create dual-axis chart
         fig = go.Figure()
         
+        # Portfolio Score
         fig.add_trace(go.Scatter(
             x=dates,
             y=scores,
@@ -1271,103 +1353,222 @@ def show_portfolio_history():
             name='Portfolio Score',
             line=dict(color='#343967', width=3),
             marker=dict(size=8, color='#343967'),
-            fill='tozeroy',
-            fillcolor='rgba(52, 57, 103, 0.1)'
+            yaxis='y'
+        ))
+        
+        # Portfolio Value
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=values,
+            mode='lines+markers',
+            name='Portfolio Value',
+            line=dict(color='#10b981', width=3),
+            marker=dict(size=8, color='#10b981'),
+            yaxis='y2'
         ))
         
         fig.update_layout(
-            height=350,
-            margin=dict(l=50, r=20, t=20, b=40),
+            height=400,
+            margin=dict(l=50, r=50, t=20, b=40),
             plot_bgcolor='white',
             paper_bgcolor='#f5f5f5',
             font=dict(family='Georgia', color='#343967'),
-            showlegend=False
+            yaxis=dict(
+                title="Score",
+                titlefont=dict(color='#343967'),
+                tickfont=dict(color='#343967'),
+                showgrid=True,
+                gridcolor='rgba(52, 57, 103, 0.1)'
+            ),
+            yaxis2=dict(
+                title="Value ($)",
+                titlefont=dict(color='#10b981'),
+                tickfont=dict(color='#10b981'),
+                overlaying='y',
+                side='right',
+                showgrid=False
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
         )
         
         fig.update_xaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)')
-        fig.update_yaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)', title="Score")
         
         st.plotly_chart(fig, use_container_width=True)
         
         # Stats
         if len(scores) > 1:
-            change = scores[-1] - scores[0]
-            change_pct = (change / scores[0]) * 100 if scores[0] != 0 else 0
+            score_change = scores[-1] - scores[0]
+            score_change_pct = (score_change / scores[0]) * 100 if scores[0] != 0 else 0
+            value_change = values[-1] - values[0]
+            value_change_pct = (value_change / values[0]) * 100 if values[0] != 0 else 0
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Current Score", f"{scores[-1]:.1f}")
             with col2:
-                st.metric("Change", f"{change:+.1f}", f"{change_pct:+.1f}%")
+                st.metric("Score Change", f"{score_change:+.1f}", f"{score_change_pct:+.1f}%")
             with col3:
-                st.metric("Peak", f"{max(scores):.1f}")
+                st.metric("Current Value", f"${values[-1]:,.2f}")
+            with col4:
+                st.metric("Value Change", f"${value_change:+,.2f}", f"{value_change_pct:+.1f}%")
 
 
-@st.dialog("Stock Preview")
-def show_stock_preview(ticker):
-    """Show stock preview before adding to portfolio"""
-    with st.spinner(f'Loading {ticker}...'):
-        score_result = score_stock(ticker)
+@st.dialog("Stock History", width="large")
+def show_stock_history_dialog(ticker):
+    """Show individual stock score history"""
+    user = st.session_state.get('user')
+    
+    if not user:
+        st.warning("Login required to view stock history")
+        return
+    
+    days = st.selectbox("Timeframe", [7, 14, 30, 60, 90, 180, 365], format_func=lambda x: f"{x} days" if x < 365 else "1 year", index=5, key=f"stock_hist_{ticker}")
+    
+    with st.spinner(f'Loading {ticker} history...'):
+        history = get_stock_score_history(user.id, ticker, days=days)
         
-        if not score_result:
-            st.error("Could not load stock data")
+        if not history:
+            st.info(f"No history available for {ticker} yet. Score history is automatically tracked daily at market close.")
             return
         
-        # Display stock info
-        etf_badge = '<span style="background: #10b981; color: white; font-size: 12px; padding: 3px 8px; border-radius: 4px; margin-left: 10px;">ETF</span>' if score_result.get('is_etf') else ''
-        st.markdown(f'<div style="text-align: center; font-size: 28px; font-weight: 600; color: #343967; margin-bottom: 5px;">{score_result["company_name"]}{etf_badge}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="text-align: center; font-size: 16px; color: #666; margin-bottom: 20px;">{score_result["ticker"]} - {score_result["sector"]}</div>', unsafe_allow_html=True)
+        dates = [datetime.fromisoformat(h[0].replace('Z', '+00:00')) for h in history]
+        scores = [h[1] for h in history]
+        prices = [h[2] for h in history]
+        
+        # Create dual-axis chart
+        fig = go.Figure()
         
         # Score
-        st.markdown(f"""
-            <div style="background: #343967; padding: 30px; border-radius: 16px; text-align: center; margin: 20px 0;">
-                <div style="color: #e6e0d5; font-size: 64px; font-weight: 200;">{score_result['final_score']}</div>
-                <div style="color: #d0c9bc; font-size: 16px;">Overall Score</div>
-            </div>
-        """, unsafe_allow_html=True)
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=scores,
+            mode='lines+markers',
+            name='Score',
+            line=dict(color='#343967', width=3),
+            marker=dict(size=8, color='#343967'),
+            yaxis='y'
+        ))
         
-        # Subscores
-        col1, col2, col3, col4, col5 = st.columns(5)
-        subscores = [
-            (col1, "Financial", score_result['financial_health']),
-            (col2, "Profit", score_result['profitability']),
-            (col3, "Growth", score_result['growth']),
-            (col4, "Momentum", score_result['momentum']),
-            (col5, "Stability", score_result['stability'])
-        ]
+        # Price
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=prices,
+            mode='lines+markers',
+            name='Price',
+            line=dict(color='#10b981', width=3),
+            marker=dict(size=8, color='#10b981'),
+            yaxis='y2'
+        ))
         
-        for col, label, score in subscores:
-            with col:
-                st.markdown(f"""
-                    <div style="text-align: center;">
-                        <div style="font-size: 24px; font-weight: 600; color: #343967;">{score}</div>
-                        <div style="font-size: 11px; color: #666; text-transform: uppercase;">{label}</div>
-                    </div>
-                """, unsafe_allow_html=True)
+        fig.update_layout(
+            height=400,
+            margin=dict(l=50, r=50, t=20, b=40),
+            plot_bgcolor='white',
+            paper_bgcolor='#f5f5f5',
+            font=dict(family='Georgia', color='#343967'),
+            yaxis=dict(
+                title="Score",
+                titlefont=dict(color='#343967'),
+                tickfont=dict(color='#343967'),
+                showgrid=True,
+                gridcolor='rgba(52, 57, 103, 0.1)'
+            ),
+            yaxis2=dict(
+                title="Price ($)",
+                titlefont=dict(color='#10b981'),
+                tickfont=dict(color='#10b981'),
+                overlaying='y',
+                side='right',
+                showgrid=False,
+                tickprefix='$'
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
         
-        st.markdown("<br>", unsafe_allow_html=True)
+        fig.update_xaxes(showgrid=True, gridcolor='rgba(52, 57, 103, 0.1)')
         
-        # Add button
-        shares = st.number_input("Number of shares", min_value=0.001, value=1.0, step=0.1, format="%.3f")
+        st.plotly_chart(fig, use_container_width=True)
         
-        if st.button("Add to Portfolio", use_container_width=True, type="primary"):
-            if ticker not in st.session_state.portfolio:
-                st.session_state.portfolio.append(ticker)
-                st.session_state.shares[ticker] = shares
+        # Stats
+        if len(scores) > 1:
+            score_change = scores[-1] - scores[0]
+            price_change = prices[-1] - prices[0]
+            price_change_pct = (price_change / prices[0]) * 100 if prices[0] != 0 else 0
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Current Score", f"{scores[-1]:.1f}")
+            with col2:
+                st.metric("Score Change", f"{score_change:+.1f}")
+            with col3:
+                st.metric("Current Price", f"${prices[-1]:.2f}")
+            with col4:
+                st.metric("Price Change", f"${price_change:+.2f}", f"{price_change_pct:+.1f}%")
+
+
+@st.dialog("Upload Portfolio Screenshot")
+def show_portfolio_upload_dialog():
+    """Upload portfolio image and extract tickers"""
+    st.markdown('<div style="text-align: center; margin-bottom: 20px;"><div style="font-size: 18px; color: #343967;">Upload a screenshot of your portfolio to automatically extract stock tickers</div></div>', unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader("Choose an image", type=['png', 'jpg', 'jpeg'], key="portfolio_image")
+    
+    if uploaded_file is not None:
+        # Display image
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Uploaded Portfolio", use_column_width=True)
+        
+        if st.button("Extract Tickers", use_container_width=True, type="primary"):
+            with st.spinner("Analyzing image..."):
+                tickers = extract_tickers_from_image(image)
                 
-                # Save if logged in
-                if st.session_state.get('authenticated'):
-                    save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
-                
-                st.session_state.needs_calculation = True
-                st.success(f"{ticker} added!")
-                st.rerun()
-            else:
-                st.warning(f"{ticker} already in portfolio")
+                if tickers:
+                    st.success(f"Found {len(tickers)} potential stocks!")
+                    
+                    st.markdown('<div style="font-size: 14px; font-weight: 600; color: #343967; margin: 15px 0;">Select stocks to add:</div>', unsafe_allow_html=True)
+                    
+                    # Show tickers with checkboxes
+                    selected_tickers = []
+                    for ticker in tickers:
+                        if st.checkbox(f"{ticker}", value=True, key=f"cb_{ticker}"):
+                            selected_tickers.append(ticker)
+                    
+                    if st.button("Add Selected Stocks", use_container_width=True):
+                        added = []
+                        for ticker in selected_tickers:
+                            if ticker not in st.session_state.portfolio:
+                                st.session_state.portfolio.append(ticker)
+                                st.session_state.shares[ticker] = 1.0
+                                added.append(ticker)
+                        
+                        if added:
+                            # Save if logged in
+                            if st.session_state.get('authenticated'):
+                                save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                            
+                            st.session_state.needs_calculation = True
+                            st.success(f"Added {len(added)} stocks: {', '.join(added)}")
+                            st.rerun()
+                        else:
+                            st.info("All selected stocks already in portfolio")
+                else:
+                    st.error("No valid stock tickers found in image. Make sure the image clearly shows ticker symbols.")
 
 
 def show_welcome_screen():
-    """Welcome screen with logo"""
+    """Welcome screen"""
     if LOGO_BASE64:
         st.markdown(f"""
             <div style="text-align: center; padding: 80px 20px;">
@@ -1391,8 +1592,26 @@ def show_welcome_screen():
         if st.button("Get Started", use_container_width=True, key="get_started"):
             show_initial_login_dialog()
 
+
 def show_main_app():
-    """Main app screen with all fixes"""
+    """Main app screen"""
+    
+    # Check for daily update if logged in
+    if st.session_state.get('authenticated') and st.session_state.portfolio:
+        if check_and_run_daily_update(st.session_state.user.id):
+            with st.spinner('Running daily portfolio update...'):
+                # Calculate scores
+                stock_scores = []
+                for ticker in st.session_state.portfolio:
+                    score_result = score_stock(ticker)
+                    if score_result:
+                        score_result['shares'] = st.session_state.shares.get(ticker, 1.0)
+                        stock_scores.append(score_result)
+                        save_score_to_history(st.session_state.user.id, ticker, score_result)
+                
+                if stock_scores:
+                    portfolio_score = calculate_portfolio_score(stock_scores)
+                    save_portfolio_score_to_history(st.session_state.user.id, portfolio_score, stock_scores)
     
     # Header
     col1, col2, col3 = st.columns([2, 3, 2])
@@ -1432,7 +1651,13 @@ def show_main_app():
     # Add stocks section
     st.markdown('<div class="section-header">Add Stocks to Portfolio</div>', unsafe_allow_html=True)
     
-    # Single search bar with autocomplete
+    # Upload portfolio button
+    if st.button("📤 Upload Portfolio Screenshot", use_container_width=False, key="upload_btn"):
+        show_portfolio_upload_dialog()
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Search bar
     ticker_input = st.text_input(
         "Search stocks", 
         placeholder="Start typing a ticker or company name (e.g. AAPL, TSLA)...",
@@ -1440,14 +1665,13 @@ def show_main_app():
         label_visibility="collapsed"
     ).upper().strip()
     
-    # Show autocomplete suggestions as user types
+    # Autocomplete
     if ticker_input and len(ticker_input) >= 1:
         matches = [t for t in POPULAR_STOCKS if ticker_input in t]
         
         if matches:
             st.markdown('<div style="font-size: 12px; color: #666; margin: 5px 0 10px 0;">Quick select:</div>', unsafe_allow_html=True)
             
-            # Show matching tickers in compact grid
             num_matches = min(len(matches), 10)
             cols_per_row = 5
             for i in range(0, num_matches, cols_per_row):
@@ -1455,7 +1679,6 @@ def show_main_app():
                 for j, ticker in enumerate(matches[i:i+cols_per_row]):
                     with cols[j]:
                         if st.button(ticker, key=f"auto_{ticker}_{i}", use_container_width=True):
-                            # Directly add the clicked ticker
                             if ticker not in st.session_state.portfolio:
                                 with st.spinner(f'Adding {ticker}...'):
                                     try:
@@ -1464,7 +1687,7 @@ def show_main_app():
                                         
                                         if not test_hist.empty:
                                             st.session_state.portfolio.append(ticker)
-                                            st.session_state.shares[ticker] = 1.0  # Default 1 share
+                                            st.session_state.shares[ticker] = 1.0
                                             
                                             if st.session_state.get('authenticated'):
                                                 save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
@@ -1479,14 +1702,13 @@ def show_main_app():
                             else:
                                 st.warning(f"{ticker} already in portfolio")
     
-    # Shares input and Search button
+    # Manual add
     col1, col2, col3 = st.columns([3, 1, 1])
     with col2:
         shares_input = st.number_input("Shares", min_value=0.001, value=1.0, step=0.1, format="%.3f", label_visibility="collapsed", key="shares_main")
     with col3:
         search_clicked = st.button("Add", use_container_width=True, type="primary", key="search_btn")
     
-    # Process manual search button
     if search_clicked:
         if ticker_input:
             mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
@@ -1502,11 +1724,9 @@ def show_main_app():
                         if test_hist.empty:
                             st.error(f"❌ Stock '{mapped_ticker}' not found")
                         else:
-                            # Add to portfolio
                             st.session_state.portfolio.append(mapped_ticker)
                             st.session_state.shares[mapped_ticker] = shares_input
                             
-                            # Save if logged in
                             if st.session_state.get('authenticated'):
                                 save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
                             
@@ -1514,7 +1734,7 @@ def show_main_app():
                             st.success(f"✓ {mapped_ticker} added!")
                             st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Could not add '{mapped_ticker}' - stock may not exist")
+                        st.error(f"❌ Could not add '{mapped_ticker}'")
         else:
             st.warning("Please enter a stock ticker")
     
@@ -1522,7 +1742,7 @@ def show_main_app():
     if st.session_state.portfolio:
         st.markdown('<div class="section-header">Your Portfolio</div>', unsafe_allow_html=True)
         
-        # Calculate scores if needed
+        # Calculate scores
         if st.session_state.get('needs_calculation', True):
             with st.spinner('Analyzing portfolio...'):
                 stock_scores = []
@@ -1532,14 +1752,17 @@ def show_main_app():
                         score_result['shares'] = st.session_state.shares.get(ticker, 1.0)
                         stock_scores.append(score_result)
                         
-                        # Save to history if logged in
                         if st.session_state.get('authenticated'):
                             save_score_to_history(st.session_state.user.id, ticker, score_result)
                 
                 st.session_state.stock_scores = stock_scores
                 st.session_state.needs_calculation = False
+                
+                # Save portfolio snapshot if logged in
+                if st.session_state.get('authenticated') and stock_scores:
+                    portfolio_score = calculate_portfolio_score(stock_scores)
+                    save_portfolio_score_to_history(st.session_state.user.id, portfolio_score, stock_scores)
         
-        # Display portfolio
         if st.session_state.stock_scores:
             portfolio_score = calculate_portfolio_score(st.session_state.stock_scores)
             
@@ -1551,7 +1774,7 @@ def show_main_app():
                 </div>
             """, unsafe_allow_html=True)
             
-            # Action buttons at top
+            # Action buttons
             col1, col2, col3 = st.columns(3)
             with col1:
                 if st.button("Refresh Scores", use_container_width=True, key="refresh_top"):
@@ -1560,10 +1783,9 @@ def show_main_app():
             
             with col2:
                 if st.button("Portfolio History", use_container_width=True, key="history_top"):
-                    show_portfolio_history()
+                    show_portfolio_history_dialog()
             
             with col3:
-                # Export report
                 html_report = generate_html_report(st.session_state.stock_scores, portfolio_score)
                 st.download_button(
                     label="Export Report",
@@ -1594,7 +1816,6 @@ def show_main_app():
                     key="sort_option"
                 )
             
-            # Sort stocks based on selection
             sort_map = {
                 "Overall Score": "final_score",
                 "Financial Health": "financial_health",
@@ -1610,12 +1831,11 @@ def show_main_app():
                 reverse=True
             )
             
-            # Stock cards with FIXED visibility
+            # Stock cards
             for stock in sorted_stocks:
                 price_change_class = "price-change-positive" if stock['price_change'] >= 0 else "price-change-negative"
                 price_change_symbol = "+" if stock['price_change'] >= 0 else ""
                 
-                # Score change if logged in (simple text, no HTML inside)
                 score_change_display = ""
                 if st.session_state.get('authenticated'):
                     score_change = get_score_change(st.session_state.user.id, stock['ticker'])
@@ -1623,12 +1843,10 @@ def show_main_app():
                         symbol = "↑" if score_change > 0 else "↓"
                         score_change_display = f" {symbol}{abs(score_change):.1f}"
                 
-                # Company logo (keep it simple)
                 logo_display = ""
                 if stock.get('logo_url'):
                     logo_display = f'<img src="{stock["logo_url"]}" class="company-logo" onerror="this.style.display=\'none\'" />'
                 
-                # ETF badge (simple HTML, no emoji)
                 etf_display = ""
                 if stock.get('is_etf'):
                     etf_display = '<span style="background: #10b981; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 600;">ETF</span>'
@@ -1636,12 +1854,10 @@ def show_main_app():
                 col_a, col_b = st.columns([4, 1])
                 
                 with col_a:
-                    # Build HTML string carefully
                     html_parts = []
                     html_parts.append('<div class="stock-card">')
                     html_parts.append('  <div style="display: flex; align-items: flex-start; margin-bottom: 12px;">')
                     
-                    # Logo (if exists)
                     if logo_display:
                         html_parts.append(f'    {logo_display}')
                     
@@ -1658,7 +1874,6 @@ def show_main_app():
                     html_parts.append(f'  <div class="stock-price">${stock["price"]:.2f} <span class="{price_change_class}">{price_change_symbol}{stock["price_change"]:.2f}%</span></div>')
                     html_parts.append('  <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 12px;">')
                     
-                    # Subscores
                     for label, key in [('Financial', 'financial_health'), ('Profit', 'profitability'), ('Growth', 'growth'), ('Momentum', 'momentum'), ('Stability', 'stability')]:
                         width = stock[key] / 20 * 100
                         html_parts.append('    <div class="subscore-container">')
@@ -1672,13 +1887,15 @@ def show_main_app():
                     st.markdown('\n'.join(html_parts), unsafe_allow_html=True)
                 
                 with col_b:
-                    # 2x2 button grid
+                    # 3x2 button grid with history
                     btn_col1, btn_col2 = st.columns(2)
                     with btn_col1:
                         if st.button("Chart", key=f"chart_{stock['ticker']}", use_container_width=True):
                             show_price_chart(stock)
                         if st.button("Details", key=f"details_{stock['ticker']}", use_container_width=True):
                             show_stock_details(stock)
+                        if st.button("History", key=f"hist_{stock['ticker']}", use_container_width=True):
+                            show_stock_history_dialog(stock['ticker'])
                     with btn_col2:
                         if st.button("Compare", key=f"compare_{stock['ticker']}", use_container_width=True):
                             show_sector_comparison(stock)
@@ -1688,7 +1905,6 @@ def show_main_app():
                                 del st.session_state.shares[stock['ticker']]
                             st.session_state.stock_scores = [s for s in st.session_state.stock_scores if s['ticker'] != stock['ticker']]
                             
-                            # Update database if logged in
                             if st.session_state.get('authenticated'):
                                 save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
                             
@@ -1698,6 +1914,7 @@ def show_main_app():
             
     else:
         st.info("Add stocks to your portfolio to get started")
+
 
 # ============ MAIN ============
 def main():
@@ -1718,10 +1935,8 @@ def main():
         st.session_state.needs_calculation = True
     if 'started' not in st.session_state:
         st.session_state.started = False
-    if 'ticker_input_value' not in st.session_state:
-        st.session_state.ticker_input_value = ""
     
-    # Check if user is logged in from previous session
+    # Check if logged in from previous session
     if not st.session_state.authenticated and supabase:
         user = get_user()
         if user:
@@ -1729,7 +1944,6 @@ def main():
             st.session_state.authenticated = True
             st.session_state.started = True
             
-            # Load saved portfolio
             portfolio, shares = load_portfolio_from_db(user.id)
             if portfolio:
                 st.session_state.portfolio = portfolio
@@ -1745,4 +1959,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
