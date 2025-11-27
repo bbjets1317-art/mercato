@@ -1,6 +1,6 @@
 """
 Mercato - The Market Made Simple
-With User Authentication and Portfolio Persistence
+Optional Login - Use freely, sign in only to save your portfolio
 CONDENSED UI VERSION
 """
 
@@ -11,20 +11,33 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import base64
-from supabase import create_client, Client
 
-# ============ SUPABASE SETUP ============
-# Initialize Supabase - credentials from Streamlit secrets
-@st.cache_resource
+# Try to import Supabase, but make it optional
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except:
+    SUPABASE_AVAILABLE = False
+
+# ============ SUPABASE SETUP (OPTIONAL) ============
 def init_supabase():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    if not SUPABASE_AVAILABLE:
+        return None
+    try:
+        url = st.secrets.get("SUPABASE_URL")
+        key = st.secrets.get("SUPABASE_KEY")
+        if url and key:
+            return create_client(url, key)
+    except:
+        pass
+    return None
 
 supabase = init_supabase()
 
 # ============ AUTH FUNCTIONS ============
 def sign_up(email, password):
+    if not supabase:
+        return {"error": "Database not configured"}
     try:
         response = supabase.auth.sign_up({"email": email, "password": password})
         return response
@@ -32,6 +45,8 @@ def sign_up(email, password):
         return {"error": str(e)}
 
 def sign_in(email, password):
+    if not supabase:
+        return {"error": "Database not configured"}
     try:
         response = supabase.auth.sign_in_with_password({"email": email, "password": password})
         return response
@@ -39,16 +54,17 @@ def sign_in(email, password):
         return {"error": str(e)}
 
 def sign_out():
-    try:
-        supabase.auth.sign_out()
-        # Clear session state
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        return True
-    except:
-        return False
+    if supabase:
+        try:
+            supabase.auth.sign_out()
+        except:
+            pass
+    st.session_state.user = None
+    st.session_state.authenticated = False
 
 def get_user():
+    if not supabase:
+        return None
     try:
         user = supabase.auth.get_user()
         if user and hasattr(user, 'user') and user.user:
@@ -58,30 +74,43 @@ def get_user():
         return None
 
 # ============ DATABASE FUNCTIONS ============
-def save_portfolio_to_db(user_id, ticker, shares=1.0):
+def save_portfolio_to_db(user_id, portfolio, shares_dict):
+    """Save entire portfolio to database"""
+    if not supabase or not user_id:
+        return False
     try:
-        data = {"user_id": str(user_id), "ticker": ticker.upper(), "shares": float(shares)}
-        supabase.table("portfolios").upsert(data).execute()
+        # Delete existing portfolio
+        supabase.table("portfolios").delete().eq("user_id", str(user_id)).execute()
+        
+        # Insert all stocks
+        for ticker in portfolio:
+            data = {
+                "user_id": str(user_id),
+                "ticker": ticker.upper(),
+                "shares": float(shares_dict.get(ticker, 1.0))
+            }
+            supabase.table("portfolios").insert(data).execute()
         return True
     except Exception as e:
         st.error(f"Error saving: {e}")
         return False
 
 def load_portfolio_from_db(user_id):
+    if not supabase:
+        return [], {}
     try:
         response = supabase.table("portfolios").select("*").eq("user_id", str(user_id)).execute()
-        return response.data if response.data else []
+        if response.data:
+            portfolio = [item['ticker'] for item in response.data]
+            shares = {item['ticker']: item['shares'] for item in response.data}
+            return portfolio, shares
+        return [], {}
     except:
-        return []
-
-def remove_from_portfolio_db(user_id, ticker):
-    try:
-        supabase.table("portfolios").delete().eq("user_id", str(user_id)).eq("ticker", ticker).execute()
-        return True
-    except:
-        return False
+        return [], {}
 
 def save_score_to_history(user_id, ticker, score_data):
+    if not supabase or not user_id:
+        return False
     try:
         data = {
             "user_id": str(user_id),
@@ -100,6 +129,8 @@ def save_score_to_history(user_id, ticker, score_data):
         return False
 
 def get_score_change(user_id, ticker):
+    if not supabase or not user_id:
+        return None
     try:
         response = supabase.table("score_history").select("score").eq(
             "user_id", str(user_id)
@@ -121,13 +152,13 @@ COMPANY_TICKER_MAP = {
     'BOEING': 'BA', 'INTEL': 'INTC', 'AMD': 'AMD', 'ORACLE': 'ORCL',
     'SALESFORCE': 'CRM', 'ADOBE': 'ADBE', 'UBER': 'UBER', 'AIRBNB': 'ABNB',
     'SPOTIFY': 'SPOT', 'SNAP': 'SNAP', 'ZOOM': 'ZM', 'SHOPIFY': 'SHOP',
-    'COINBASE': 'COIN', 'PALANTIR': 'PLTR', 'RIVIAN': 'RIVN'
+    'COINBASE': 'COIN', 'PALANTIR': 'PLTR', 'RIVIAN': 'RIVN', 'TARGET': 'TGT'
 }
 
 # Page config
 st.set_page_config(page_title="Mercato", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
-# ============ CONDENSED CSS - TIGHT SPACING ============
+# ============ CONDENSED CSS ============
 st.markdown("""
     <style>
     :root {
@@ -153,7 +184,6 @@ st.markdown("""
         max-width: 1000px !important;
     }
     
-    /* Condensed spacing */
     .element-container { margin-bottom: 0.5rem !important; }
     .row-widget { margin-bottom: 0.5rem !important; }
     
@@ -288,24 +318,6 @@ st.markdown("""
         border: 2px solid #d9d0c1;
         padding: 10px;
     }
-    
-    /* Auth screens */
-    .auth-container {
-        max-width: 400px;
-        margin: 50px auto;
-        padding: 30px;
-        background: white;
-        border-radius: 16px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    
-    .auth-title {
-        font-size: 32px;
-        font-weight: 700;
-        color: #343967;
-        text-align: center;
-        margin-bottom: 20px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -344,7 +356,6 @@ def get_stock_data(ticker):
     except Exception as e:
         return None
 
-
 def calculate_financial_health(data):
     scores = []
     debt_ratio = data['total_debt'] / data['market_cap'] if data['market_cap'] > 0 else 1
@@ -372,7 +383,6 @@ def calculate_financial_health(data):
     scores.append(fcf_score)
     
     return np.mean(scores) * 20
-
 
 def calculate_profitability(data):
     scores = []
@@ -417,7 +427,6 @@ def calculate_profitability(data):
     
     return np.mean(scores) * 20
 
-
 def calculate_growth(data):
     scores = []
     rev = data['revenue_growth']
@@ -448,7 +457,6 @@ def calculate_growth(data):
     
     scores.append(0.65)
     return np.mean(scores) * 20
-
 
 def calculate_momentum(data):
     try:
@@ -497,7 +505,6 @@ def calculate_momentum(data):
         return np.mean(scores) * 20 if scores else 12.0
     except:
         return 12.0
-
 
 def calculate_stability(data):
     scores = []
@@ -556,7 +563,6 @@ def calculate_stability(data):
     
     return np.mean(scores) * 20
 
-
 def score_stock(ticker):
     data = get_stock_data(ticker)
     
@@ -587,7 +593,6 @@ def score_stock(ticker):
         'hist': data['hist']
     }
 
-
 def calculate_portfolio_score(stock_scores):
     if not stock_scores:
         return 0
@@ -609,7 +614,6 @@ def calculate_portfolio_score(stock_scores):
     portfolio_score = avg_score * div_adj * stab_adj
     
     return round(portfolio_score, 1)
-
 
 def generate_insights(stock_scores):
     insights = []
@@ -634,237 +638,281 @@ def generate_insights(stock_scores):
     
     return insights
 
-# ============ AUTHENTICATION SCREENS ============
-def show_auth():
-    """Login/Signup screen"""
-    st.markdown('<div class="auth-container">', unsafe_allow_html=True)
-    st.markdown('<div class="auth-title">Mercato</div>', unsafe_allow_html=True)
+# ============ MAIN APP SCREENS ============
+
+@st.dialog("Welcome to Mercato")
+def show_initial_login_dialog():
+    """Initial login dialog that appears when user clicks Add Stocks"""
+    st.markdown('<div style="text-align: center; margin-bottom: 20px;"><div style="font-size: 18px; color: #343967;">Sign in to save your portfolio, or skip to use without saving</div></div>', unsafe_allow_html=True)
     
     tab1, tab2 = st.tabs(["Login", "Sign Up"])
     
     with tab1:
-        email = st.text_input("Email", key="login_email")
-        password = st.text_input("Password", type="password", key="login_password")
+        email = st.text_input("Email", key="dialog_login_email")
+        password = st.text_input("Password", type="password", key="dialog_login_password")
         
-        if st.button("Login", use_container_width=True):
-            if email and password:
-                with st.spinner("Logging in..."):
-                    result = sign_in(email, password)
-                    if hasattr(result, 'user') and result.user:
-                        st.session_state.user = result.user
-                        st.session_state.authenticated = True
-                        st.rerun()
-                    else:
-                        st.error("Invalid credentials")
-            else:
-                st.error("Please enter email and password")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Login", use_container_width=True):
+                if email and password:
+                    with st.spinner("Logging in..."):
+                        result = sign_in(email, password)
+                        if hasattr(result, 'user') and result.user:
+                            st.session_state.user = result.user
+                            st.session_state.authenticated = True
+                            
+                            # Load their saved portfolio
+                            portfolio, shares = load_portfolio_from_db(result.user.id)
+                            if portfolio:
+                                st.session_state.portfolio = portfolio
+                                st.session_state.shares = shares
+                            
+                            st.session_state.started = True
+                            st.success("Logged in!")
+                            st.rerun()
+                        else:
+                            st.error("Invalid credentials")
+                else:
+                    st.error("Please enter email and password")
+        
+        with col2:
+            if st.button("Skip - Use Without Saving", use_container_width=True):
+                st.session_state.skip_login = True
+                st.session_state.started = True
+                st.rerun()
     
     with tab2:
-        email = st.text_input("Email", key="signup_email")
-        password = st.text_input("Password", type="password", key="signup_password")
-        password2 = st.text_input("Confirm Password", type="password", key="signup_password2")
+        email = st.text_input("Email", key="dialog_signup_email")
+        password = st.text_input("Password", type="password", key="dialog_signup_password")
+        password2 = st.text_input("Confirm Password", type="password", key="dialog_signup_password2")
         
-        if st.button("Sign Up", use_container_width=True):
-            if email and password and password2:
-                if password != password2:
-                    st.error("Passwords don't match")
-                elif len(password) < 6:
-                    st.error("Password must be at least 6 characters")
-                else:
-                    with st.spinner("Creating account..."):
-                        result = sign_up(email, password)
-                        if hasattr(result, 'user') and result.user:
-                            st.success("Account created! Please login.")
-                        else:
-                            error_msg = result.get('error', 'Sign up failed')
-                            st.error(f"Error: {error_msg}")
-            else:
-                st.error("Please fill in all fields")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-def show_welcome():
-    """Welcome screen after login"""
-    user = st.session_state.get('user')
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown('<div class="welcome-title">Welcome to Mercato</div>', unsafe_allow_html=True)
-        st.markdown('<div class="welcome-tagline">The market made simple</div>', unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        st.markdown('<div class="section-header">Add Your Stocks</div>', unsafe_allow_html=True)
-        ticker_input = st.text_input("Stock ticker or company name", key="welcome_ticker").upper()
-        shares_input = st.number_input("Number of shares", min_value=0.001, value=1.0, step=0.1, format="%.3f")
-        
-        if st.button("Add Stock", use_container_width=True):
-            if ticker_input:
-                # Check if it's a company name
-                mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
-                
-                with st.spinner('Adding stock...'):
-                    try:
-                        test_stock = yf.Ticker(mapped_ticker)
-                        test_hist = test_stock.history(period="5d")
-                        
-                        if test_hist.empty:
-                            st.error("Stock not found")
-                        else:
-                            if save_portfolio_to_db(user.id, mapped_ticker, shares_input):
-                                st.success(f"{mapped_ticker} added!")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Sign Up", use_container_width=True):
+                if email and password and password2:
+                    if password != password2:
+                        st.error("Passwords don't match")
+                    elif len(password) < 6:
+                        st.error("Password must be at least 6 characters")
+                    else:
+                        with st.spinner("Creating account..."):
+                            result = sign_up(email, password)
+                            if hasattr(result, 'user') and result.user:
+                                # Auto-login after signup
+                                st.session_state.user = result.user
+                                st.session_state.authenticated = True
+                                st.session_state.started = True
+                                st.success("Account created!")
                                 st.rerun()
-                    except:
-                        st.error("Stock not found")
+                            else:
+                                error_msg = result.get('error', 'Sign up failed')
+                                st.error(f"Error: {error_msg}")
+                else:
+                    st.error("Please fill in all fields")
         
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Show current portfolio
-        portfolio_items = load_portfolio_from_db(user.id)
-        if portfolio_items:
-            st.markdown('<div class="section-header">Your Stocks</div>', unsafe_allow_html=True)
-            for item in portfolio_items:
-                col_a, col_b = st.columns([3, 1])
-                with col_a:
-                    st.markdown(f'<div class="company-name">{item["ticker"]} - {item["shares"]} shares</div>', unsafe_allow_html=True)
-                with col_b:
-                    if st.button("Remove", key=f"remove_{item['ticker']}"):
-                        remove_from_portfolio_db(user.id, item['ticker'])
-                        st.rerun()
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Analyze Portfolio", use_container_width=True):
-                st.session_state.screen = 'calculating'
+        with col2:
+            if st.button("Skip", use_container_width=True, key="skip2"):
+                st.session_state.skip_login = True
+                st.session_state.started = True
                 st.rerun()
 
 
-def show_calculating():
-    """Calculating screen"""
-    user = st.session_state.get('user')
-    
+def show_welcome_screen():
+    """Welcome screen with Add Stocks button that triggers login dialog"""
     st.markdown("""
-        <div style="background: #343967; min-height: 60vh; display: flex; align-items: center; justify-content: center; border-radius: 20px;">
-            <div style="text-align: center; color: white;">
-                <div style="font-size: 32px; margin: 20px 0;">Analyzing Portfolio...</div>
-                <div style="font-size: 16px; color: #F9F8F6; font-style: italic;">Calculating scores</div>
-            </div>
+        <div style="text-align: center; padding: 100px 20px;">
+            <div class="welcome-title">Mercato</div>
+            <div class="welcome-tagline">The market made simple</div>
         </div>
     """, unsafe_allow_html=True)
     
-    portfolio_items = load_portfolio_from_db(user.id)
-    stock_scores = []
-    
-    progress_bar = st.progress(0)
-    for i, item in enumerate(portfolio_items):
-        ticker = item['ticker']
-        score_result = score_stock(ticker)
-        if score_result:
-            score_result['shares'] = item['shares']
-            stock_scores.append(score_result)
-            # Save score to history
-            save_score_to_history(user.id, ticker, score_result)
-        progress_bar.progress((i + 1) / len(portfolio_items))
-    
-    st.session_state.stock_scores = stock_scores
-    st.session_state.screen = 'dashboard'
-    st.rerun()
-
-
-def show_dashboard():
-    """Main dashboard"""
-    user = st.session_state.get('user')
-    stock_scores = st.session_state.get('stock_scores', [])
-    
-    # Header with logout
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown('<div class="welcome-title" style="text-align: left; font-size: 32px;">Portfolio Dashboard</div>', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        if st.button("Logout", use_container_width=True):
-            sign_out()
-            st.rerun()
+        if st.button("Get Started", use_container_width=True, key="get_started"):
+            show_initial_login_dialog()
+
+
+def show_main_app():
+    """Main application screen - works without login"""
     
-    if not stock_scores:
-        st.warning("No stocks analyzed yet")
-        if st.button("Add Stocks"):
-            st.session_state.screen = 'welcome'
-            st.rerun()
-        return
+    # Header with title and login/logout button
+    col1, col2, col3 = st.columns([2, 3, 2])
     
-    # Portfolio Health Score
-    portfolio_score = calculate_portfolio_score(stock_scores)
-    st.markdown(f"""
-        <div class="health-score-container">
-            <div class="health-score-number">{portfolio_score}</div>
-            <div class="health-score-subtext">Score: {portfolio_score} / 100</div>
-        </div>
-    """, unsafe_allow_html=True)
+    with col1:
+        if st.session_state.get('authenticated'):
+            user_email = st.session_state.user.email.split('@')[0]
+            st.markdown(f'<div style="color: #343967; font-size: 14px; padding: 10px;">Logged in as: {user_email}</div>', unsafe_allow_html=True)
     
-    # Daily Insights
-    st.markdown('<div class="section-header">Daily Insights</div>', unsafe_allow_html=True)
-    insights = generate_insights(stock_scores)
-    for insight in insights:
-        st.markdown(f'<div class="insight-card"><div class="insight-text">{insight}</div></div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown('<div class="welcome-title" style="font-size: 32px;">Mercato</div>', unsafe_allow_html=True)
+        st.markdown('<div class="welcome-tagline" style="font-size: 16px;">The market made simple</div>', unsafe_allow_html=True)
     
-    # Stock Cards
-    st.markdown('<div class="section-header">Your Stocks</div>', unsafe_allow_html=True)
-    for stock in stock_scores:
-        price_change_class = "price-change-positive" if stock['price_change'] >= 0 else "price-change-negative"
-        price_change_symbol = "+" if stock['price_change'] >= 0 else ""
-        
-        # Check for score change
-        score_change = get_score_change(user.id, stock['ticker'])
-        score_change_text = ""
-        if score_change and score_change != 0:
-            symbol = "↑" if score_change > 0 else "↓"
-            score_change_text = f'<span style="font-size: 14px; color: #e6e0d5;"> {symbol}{abs(score_change):.1f}</span>'
-        
-        st.markdown(f"""
-            <div class="stock-card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <div>
-                        <div class="company-name">{stock['company_name']}</div>
-                        <div class="stock-ticker">{stock['ticker']} - {stock['shares']} shares</div>
-                    </div>
-                    <div class="stock-score">{stock['final_score']}{score_change_text}</div>
-                </div>
-                <div class="stock-price">${stock['price']:.2f} <span class="{price_change_class}">{price_change_symbol}{stock['price_change']:.2f}%</span></div>
-                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px;">
-                    <div class="subscore-container">
-                        <div class="subscore-label">Financial</div>
-                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['financial_health']/20*100}%"></div></div>
-                    </div>
-                    <div class="subscore-container">
-                        <div class="subscore-label">Profit</div>
-                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['profitability']/20*100}%"></div></div>
-                    </div>
-                    <div class="subscore-container">
-                        <div class="subscore-label">Growth</div>
-                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['growth']/20*100}%"></div></div>
-                    </div>
-                    <div class="subscore-container">
-                        <div class="subscore-label">Momentum</div>
-                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['momentum']/20*100}%"></div></div>
-                    </div>
-                    <div class="subscore-container">
-                        <div class="subscore-label">Stability</div>
-                        <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['stability']/20*100}%"></div></div>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+    with col3:
+        if st.session_state.get('authenticated'):
+            if st.button("Logout", use_container_width=True):
+                sign_out()
+                st.rerun()
+        else:
+            if st.button("Login", use_container_width=True):
+                show_login_dialog()
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    # Add stocks section
+    st.markdown('<div class="section-header">Add Stocks to Portfolio</div>', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([3, 2, 2])
+    
     with col1:
-        if st.button("Add More Stocks", use_container_width=True):
-            st.session_state.screen = 'welcome'
-            st.rerun()
+        ticker_input = st.text_input("Stock ticker or company name", key="main_ticker", label_visibility="collapsed", placeholder="Enter ticker (e.g. AAPL, TSLA)").upper()
+    
     with col2:
-        if st.button("Refresh Scores", use_container_width=True):
-            st.session_state.screen = 'calculating'
-            st.rerun()
+        shares_input = st.number_input("Shares", min_value=0.001, value=1.0, step=0.1, format="%.3f", label_visibility="collapsed")
+    
+    with col3:
+        add_button = st.button("Add to Portfolio", use_container_width=True)
+    
+    if add_button and ticker_input:
+        # Check if it's a company name
+        mapped_ticker = COMPANY_TICKER_MAP.get(ticker_input, ticker_input)
+        
+        if mapped_ticker in st.session_state.portfolio:
+            st.warning(f"{mapped_ticker} already in portfolio")
+        else:
+            with st.spinner('Validating stock...'):
+                try:
+                    test_stock = yf.Ticker(mapped_ticker)
+                    test_hist = test_stock.history(period="5d")
+                    
+                    if test_hist.empty:
+                        st.error("Stock not found")
+                    else:
+                        # Add to session portfolio
+                        st.session_state.portfolio.append(mapped_ticker)
+                        st.session_state.shares[mapped_ticker] = shares_input
+                        
+                        # If logged in, save to database
+                        if st.session_state.get('authenticated'):
+                            save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                        
+                        # Trigger recalculation
+                        st.session_state.needs_calculation = True
+                        st.success(f"{mapped_ticker} added!")
+                        st.rerun()
+                except:
+                    st.error("Stock not found")
+    
+    # Current portfolio display
+    if st.session_state.portfolio:
+        st.markdown('<div class="section-header">Your Portfolio</div>', unsafe_allow_html=True)
+        
+        # Calculate scores if needed
+        if st.session_state.get('needs_calculation', True):
+            with st.spinner('Analyzing portfolio...'):
+                stock_scores = []
+                for ticker in st.session_state.portfolio:
+                    score_result = score_stock(ticker)
+                    if score_result:
+                        score_result['shares'] = st.session_state.shares.get(ticker, 1.0)
+                        stock_scores.append(score_result)
+                        
+                        # Save to history if logged in
+                        if st.session_state.get('authenticated'):
+                            save_score_to_history(st.session_state.user.id, ticker, score_result)
+                
+                st.session_state.stock_scores = stock_scores
+                st.session_state.needs_calculation = False
+        
+        # Display portfolio score
+        if st.session_state.stock_scores:
+            portfolio_score = calculate_portfolio_score(st.session_state.stock_scores)
+            st.markdown(f"""
+                <div class="health-score-container">
+                    <div class="health-score-number">{portfolio_score}</div>
+                    <div class="health-score-subtext">Portfolio Score</div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Insights
+            insights = generate_insights(st.session_state.stock_scores)
+            if insights:
+                st.markdown('<div style="font-size: 16px; font-weight: 600; color: #343967; margin: 15px 0 8px 0;">Insights</div>', unsafe_allow_html=True)
+                for insight in insights:
+                    st.markdown(f'<div class="insight-card"><div class="insight-text">{insight}</div></div>', unsafe_allow_html=True)
+            
+            # Stock cards
+            st.markdown('<div style="font-size: 16px; font-weight: 600; color: #343967; margin: 15px 0 8px 0;">Stocks</div>', unsafe_allow_html=True)
+            
+            for stock in st.session_state.stock_scores:
+                price_change_class = "price-change-positive" if stock['price_change'] >= 0 else "price-change-negative"
+                price_change_symbol = "+" if stock['price_change'] >= 0 else ""
+                
+                # Check for score change if logged in
+                score_change_text = ""
+                if st.session_state.get('authenticated'):
+                    score_change = get_score_change(st.session_state.user.id, stock['ticker'])
+                    if score_change and score_change != 0:
+                        symbol = "↑" if score_change > 0 else "↓"
+                        score_change_text = f'<span style="font-size: 14px; color: #e6e0d5;"> {symbol}{abs(score_change):.1f}</span>'
+                
+                col_a, col_b = st.columns([4, 1])
+                
+                with col_a:
+                    st.markdown(f"""
+                        <div class="stock-card">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div>
+                                    <div class="company-name">{stock['company_name']}</div>
+                                    <div class="stock-ticker">{stock['ticker']} - {stock['shares']} shares</div>
+                                </div>
+                                <div class="stock-score">{stock['final_score']}{score_change_text}</div>
+                            </div>
+                            <div class="stock-price">${stock['price']:.2f} <span class="{price_change_class}">{price_change_symbol}{stock['price_change']:.2f}%</span></div>
+                            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px;">
+                                <div class="subscore-container">
+                                    <div class="subscore-label">Financial</div>
+                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['financial_health']/20*100}%"></div></div>
+                                </div>
+                                <div class="subscore-container">
+                                    <div class="subscore-label">Profit</div>
+                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['profitability']/20*100}%"></div></div>
+                                </div>
+                                <div class="subscore-container">
+                                    <div class="subscore-label">Growth</div>
+                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['growth']/20*100}%"></div></div>
+                                </div>
+                                <div class="subscore-container">
+                                    <div class="subscore-label">Momentum</div>
+                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['momentum']/20*100}%"></div></div>
+                                </div>
+                                <div class="subscore-container">
+                                    <div class="subscore-label">Stability</div>
+                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['stability']/20*100}%"></div></div>
+                                </div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_b:
+                    if st.button("Remove", key=f"remove_{stock['ticker']}", use_container_width=True):
+                        st.session_state.portfolio.remove(stock['ticker'])
+                        if stock['ticker'] in st.session_state.shares:
+                            del st.session_state.shares[stock['ticker']]
+                        st.session_state.stock_scores = [s for s in st.session_state.stock_scores if s['ticker'] != stock['ticker']]
+                        
+                        # Update database if logged in
+                        if st.session_state.get('authenticated'):
+                            save_portfolio_to_db(st.session_state.user.id, st.session_state.portfolio, st.session_state.shares)
+                        
+                        st.rerun()
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if st.button("🔄 Refresh Scores", use_container_width=True):
+                st.session_state.needs_calculation = True
+                st.rerun()
+    else:
+        st.info("Add stocks to your portfolio to get started")
 
 
 # ============ MAIN APP ============
@@ -874,29 +922,41 @@ def main():
         st.session_state.authenticated = False
     if 'user' not in st.session_state:
         st.session_state.user = None
-    if 'screen' not in st.session_state:
-        st.session_state.screen = 'welcome'
+    if 'portfolio' not in st.session_state:
+        st.session_state.portfolio = []
+    if 'shares' not in st.session_state:
+        st.session_state.shares = {}
     if 'stock_scores' not in st.session_state:
         st.session_state.stock_scores = []
+    if 'skip_login' not in st.session_state:
+        st.session_state.skip_login = False
+    if 'needs_calculation' not in st.session_state:
+        st.session_state.needs_calculation = True
+    if 'started' not in st.session_state:
+        st.session_state.started = False
     
-    # Check if user is authenticated
-    if not st.session_state.authenticated:
+    # Check if user is logged in (from previous session)
+    if not st.session_state.authenticated and supabase:
         user = get_user()
         if user:
             st.session_state.user = user
             st.session_state.authenticated = True
-        else:
-            show_auth()
-            return
+            st.session_state.started = True
+            
+            # Load their saved portfolio
+            portfolio, shares = load_portfolio_from_db(user.id)
+            if portfolio:
+                st.session_state.portfolio = portfolio
+                st.session_state.shares = shares
+                st.session_state.needs_calculation = True
     
-    # Show appropriate screen
-    if st.session_state.screen == 'welcome':
-        show_welcome()
-    elif st.session_state.screen == 'calculating':
-        show_calculating()
-    elif st.session_state.screen == 'dashboard':
-        show_dashboard()
+    # Show welcome screen or main app
+    if not st.session_state.started:
+        show_welcome_screen()
+    else:
+        show_main_app()
 
 
 if __name__ == "__main__":
     main()
+                    
