@@ -335,13 +335,13 @@ st.markdown("""
     .stButton > button {
         background: #343967;
         color: white;
-        padding: 10px 20px;
-        font-size: 14px;
+        padding: 10px 15px;
+        font-size: 13px;
         border-radius: 10px;
         border: none;
         width: 100%;
         white-space: nowrap;
-        overflow: visible;
+        min-width: fit-content;
     }
     
     .stButton > button:hover {
@@ -1554,6 +1554,9 @@ def show_main_app():
                 
                 col_a, col_b = st.columns([4, 1])
                 
+                # Prepare ETF badge
+                etf_badge_html = '<span style="background: #10b981; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">ETF</span>' if stock.get('is_etf') else ''
+                
                 with col_a:
                     st.markdown(f"""
                         <div class="stock-card">
@@ -1564,7 +1567,7 @@ def show_main_app():
                                         <div>
                                             <div class="company-name">
                                                 {stock['company_name']}
-                                                {'<span style="background: #10b981; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">ETF</span>' if stock.get('is_etf') else ''}
+                                                {etf_badge_html}
                                             </div>
                                             <div class="stock-ticker">{stock['ticker']} - {stock['shares']} shares</div>
                                         </div>
