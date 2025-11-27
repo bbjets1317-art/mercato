@@ -1630,55 +1630,41 @@ def show_main_app():
                 
                 col_a, col_b = st.columns([4, 1])
                 
-                # Prepare ETF badge
-                etf_badge_html = ''
-                if stock.get('is_etf'):
-                    etf_badge_html = '<span style="background: #10b981; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">ETF</span>'
-                
                 with col_a:
-                    card_html = f"""
-                        <div class="stock-card">
-                            <div style="display: flex; align-items: center; margin-bottom: 12px;">
-                                {logo_html}
-                                <div style="flex: 1;">
-                                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <div>
-                                            <div class="company-name">
-                                                {stock['company_name']}
-                                                {etf_badge_html}
-                                            </div>
-                                            <div class="stock-ticker">{stock['ticker']} - {stock['shares']} shares</div>
-                                        </div>
-                                        <div class="stock-score">{stock['final_score']}{score_change_text}</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="stock-price">${stock['price']:.2f} <span class="{price_change_class}">{price_change_symbol}{stock['price_change']:.2f}%</span></div>
-                            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 12px;">
-                                <div class="subscore-container">
-                                    <div class="subscore-label">Financial</div>
-                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['financial_health']/20*100}%"></div></div>
-                                </div>
-                                <div class="subscore-container">
-                                    <div class="subscore-label">Profit</div>
-                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['profitability']/20*100}%"></div></div>
-                                </div>
-                                <div class="subscore-container">
-                                    <div class="subscore-label">Growth</div>
-                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['growth']/20*100}%"></div></div>
-                                </div>
-                                <div class="subscore-container">
-                                    <div class="subscore-label">Momentum</div>
-                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['momentum']/20*100}%"></div></div>
-                                </div>
-                                <div class="subscore-container">
-                                    <div class="subscore-label">Stability</div>
-                                    <div class="subscore-bar"><div class="subscore-fill" style="width: {stock['stability']/20*100}%"></div></div>
-                                </div>
-                            </div>
-                        </div>
-                    """
-                    st.markdown(card_html, unsafe_allow_html=True)
+                    # Use Streamlit native components instead of HTML
+                    with st.container():
+                        # Company name and score row
+                        name_col, score_col = st.columns([3, 1])
+                        with name_col:
+                            etf_badge = " 🏦ETF" if stock.get('is_etf') else ""
+                            st.markdown(f"**{stock['company_name']}**{etf_badge}")
+                            st.caption(f"{stock['ticker']} - {stock['shares']} shares")
+                        with score_col:
+                            score_change_emoji = ""
+                            if st.session_state.get('authenticated'):
+                                score_change = get_score_change(st.session_state.user.id, stock['ticker'])
+                                if score_change and score_change != 0:
+                                    score_change_emoji = f" {'↑' if score_change > 0 else '↓'}{abs(score_change):.1f}"
+                            st.markdown(f"# {stock['final_score']}{score_change_emoji}")
+                        
+                        # Price
+                        price_emoji = "🟢" if stock['price_change'] >= 0 else "🔴"
+                        st.markdown(f"{price_emoji} ${stock['price']:.2f} ({stock['price_change']:+.2f}%)")
+                        
+                        # Subscores
+                        st.markdown("---")
+                        cols = st.columns(5)
+                        subscores = [
+                            ("Financial", stock['financial_health']),
+                            ("Profit", stock['profitability']),
+                            ("Growth", stock['growth']),
+                            ("Momentum", stock['momentum']),
+                            ("Stability", stock['stability'])
+                        ]
+                        for col, (label, score) in zip(cols, subscores):
+                            with col:
+                                st.metric(label, f"{score}/20", delta=None, label_visibility="visible")
+                                st.progress(score / 20)
                 
                 with col_b:
                     # 2x2 button grid
