@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://enlarge-webcams-showing-levels.trycloudflare.com';
+const API_BASE_URL = 'http://34.226.194.13:8000';
 
 export const api = {
   getLeaderboard: async (limit = 500) => {
